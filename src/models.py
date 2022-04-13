@@ -19,11 +19,11 @@ class NeuralNetwork(nn.Module):
         self.out_features = out_features
 #         self.flatten = nn.Flatten()
         self.linear_relu_stack = nn.Sequential(
-            nn.Linear(28*28, 512),
+            nn.Linear(self.in_features, 512),
             nn.ReLU(),
             nn.Linear(512, 512),
             nn.ReLU(),
-            nn.Linear(512, 10),
+            nn.Linear(512, self.out_features),
         )
 
     def forward(self, x):

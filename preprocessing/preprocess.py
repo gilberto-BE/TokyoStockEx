@@ -1,6 +1,8 @@
 
+import numpy as np
 import torch
 from torch.utils.data import DataLoader, Dataset
+from sklearn.impute import SimpleImputer
 
 
 def show_df(
@@ -40,6 +42,7 @@ def preprocess(df, diff_cols=['Open', 'Close', 'High', 'Low', 'Volume']):
     if diff_cols:
         df[diff_cols] = df[diff_cols].pct_change()
     df = df.select_dtypes(include=[int, float])
+
     return df
 
 
