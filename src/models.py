@@ -17,7 +17,7 @@ class NeuralNetwork(nn.Module):
         super(NeuralNetwork, self).__init__()
         self.in_features = in_features
         self.out_features = out_features
-#         self.flatten = nn.Flatten()
+        self.flatten = nn.Flatten()
         self.linear_relu_stack = nn.Sequential(
             nn.Linear(self.in_features, 512),
             nn.ReLU(),
@@ -27,7 +27,7 @@ class NeuralNetwork(nn.Module):
         )
 
     def forward(self, x):
-#         x = self.flatten(x)
+        x = self.flatten(x)
         logits = self.linear_relu_stack(x)
         return logits
     
@@ -90,7 +90,11 @@ class Trainer:
         for batch, data in enumerate(train_loader):
             x = data['features']
             y = data['target']
-            print('x.shap1e:', x.shape)
+            y = y.view(len(y), 1)
+            print('x-tesnor-shape:', x.shape)
+
+            print('y-tensor-shape:', y.shape)
+
             x, y = x.to(self.device), y.to(self.device)
             self._run_train_step(x, y, batch, size)
 

@@ -40,11 +40,10 @@ def date_features(df, date_col=None):
 
 def preprocess(df, diff_cols=['Open', 'Close', 'High', 'Low', 'Volume']):
     if diff_cols:
-        df[diff_cols] = df[diff_cols].pct_change()
+        df[diff_cols] = df[diff_cols].pct_change().dropna()
     df = df.select_dtypes(include=[int, float])
 
     return df
-
 
 
 class ToTorch(Dataset):
