@@ -95,6 +95,7 @@ class Trainer:
                 for batch, data in enumerate(valid_loader):
                     xval = data['features']
                     yval = data['target']
+                    xval, yval = xval.to(self.device), yval.to(self.device)
                     self.evaluate(xval, yval, batch, size)
 
     def evaluate(self, x, y, batch, size):
