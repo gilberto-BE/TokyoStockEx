@@ -13,27 +13,24 @@ pl.utilities.seed.seed_everything(seed=42)
 
 
 class NeuralNetwork(nn.Module):
-    def __init__(self, in_features, out_features):
+    def __init__(self, in_features, out_features, units=512):
         super(NeuralNetwork, self).__init__()
         self.in_features = in_features
         self.out_features = out_features
+        self.units = units
         self.flatten = nn.Flatten()
-        self.linear_relu_stack = nn.Sequential(
-            nn.Linear(self.in_features, 512),
-            nn.ReLU(),
-            nn.Linear(512, 512),
-            nn.ReLU(),
-            nn.Linear(512, self.out_features),
-        )
+        self.input_linear = nn.Linear(self.in_features, self.units)
+        self.hidden_layer = nn.Linear(self.units, self.units)
+        self.output_layer = nn.Linear(self.units, self.out_features)
 
     def forward(self, x):
         x = self.flatten(x)
-        logits = self.linear_relu_stack(x)
-        return logits
+        # logits = self.linear_relu_stack(x)
+        x = F.relu(self.input_linear(x))
+        x = F.relu(self.hidden_layer(x))
+        x = self.output_layer(x)
+        return x
     
-
-
-
 
 class Trainer:
     def __init__(
@@ -83,32 +80,29 @@ class Trainer:
         for epoch in epochs:
             self.fit_one_epoch(train_loader, valid_loader)
 
-
     def fit_one_epoch(self, train_loader, valid_loader=None):
         size = len(train_loader)
         self.model.to(self.device).train()
         for batch, data in enumerate(train_loader):
             x = data['features']
             y = data['target']
-            y = y.view(len(y), 1)
-            print('x-tesnor-shape:', x.shape)
-
-            print('y-tensor-shape:', y.shape)
-
             x, y = x.to(self.device), y.to(self.device)
             self._run_train_step(x, y, batch, size)
 
         if valid_loader is not None:
+            size = len(valid_loader)
             with torch.no_grad():
-                pass
+                for batch, data in enumerate(valid_loader):
+                    xval = data['features']
+                    yval = data['target']
+                    self.evaluate(xval, yval, batch, size)
 
-    def evaluate(self, test_loader, batch, size):
+    def evaluate(self, x, y, batch, size):
         self.model.eval()
-        for x, y in range(len(test_loader)):
-            x, y = x.to(self.device), y.to(self.device)
-            pred = self.model(x)
-            loss += self.loss_fn(pred, y).item()
-            print(f'val-loss: {loss.item()} [{batch * len(x)/{size}}]')
+        x, y = x.to(self.device), y.to(self.device)
+        pred = self.model(x)
+        loss += self.loss_fn(pred, y).item()
+        print(f'val-loss: {loss.item()} [{batch * len(x)/{size}}]')
 
 
     def _run_train_step(self, x, y, batch, size):
