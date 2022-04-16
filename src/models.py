@@ -99,11 +99,12 @@ class Trainer:
                     self.evaluate(xval, yval, batch, size)
 
     def evaluate(self, x, y, batch, size):
+        loss = 0.0
         self.model.eval()
         x, y = x.to(self.device), y.to(self.device)
         pred = self.model(x)
-        loss += self.loss_fn(pred, y).item()
-        print(f'val-loss: {loss.item()} [{batch * len(x)/{size}}]')
+        loss += self.loss_fn(pred, y)#.item()
+        print(f'val-loss: {loss.item()} [{batch * len(x)}/{size}]')
 
 
     def _run_train_step(self, x, y, batch, size):

@@ -9,13 +9,11 @@ from sklearn.impute import SimpleImputer
 def ts_split(raw_data, train_size=0.75, val_size=None):
 
     train_sz = int(len(raw_data) * train_size)
-    train_set = raw_data.iloc[ :train_sz]
+    train_set = raw_data[ :train_sz]
     # if val_size and test_size:
     #     assert len(raw_data) == 100 * int(train_size * len(raw_data))
-    valid_set = raw_data.iloc[train_sz: ]
-
-    valid_set = raw_data.iloc[train_size : ]
-    return train_set, valid_set
+    valid_set = raw_data[train_sz: ]
+    return train_set, valid_set    
 
 
 def show_df(
@@ -68,7 +66,6 @@ def preprocess(
     if continous_cols:
         x[continous_cols] = x[continous_cols].pct_change()
     x = x.select_dtypes(include=[int, float]).dropna().to_numpy()
-
     return x, y
 
 
