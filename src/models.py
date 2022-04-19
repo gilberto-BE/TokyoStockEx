@@ -106,7 +106,6 @@ class Trainer:
         loss += self.loss_fn(pred, y)#.item()
         print(f'val-loss: {loss.item()} [{batch * len(x)}/{size}]')
 
-
     def _run_train_step(self, x, y, batch, size):
         pred = self.model(x)
         loss = self.loss_fn(pred, y)
