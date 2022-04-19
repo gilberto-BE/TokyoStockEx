@@ -25,12 +25,15 @@ class NeuralNetwork(nn.Module):
 
     def forward(self, x):
         x = self.flatten(x)
-        # logits = self.linear_relu_stack(x)
         x = F.relu(self.input_linear(x))
         x = F.relu(self.hidden_layer(x))
         x = self.output_layer(x)
         return x
     
+
+def load_trained_model():
+    pass
+
 
 class Trainer:
     def __init__(
@@ -78,25 +81,24 @@ class Trainer:
 
     def fit_epochs(self, train_loader, valid_loader=None, epochs=5):
         for epoch in epochs:
+            print(f'Epoch: <<< {epoch} >>>')
             self.fit_one_epoch(train_loader, valid_loader)
 
     def fit_one_epoch(self, train_loader, valid_loader=None):
         size = len(train_loader)
         self.model.to(self.device).train()
         for batch, data in enumerate(train_loader):
-            x = data['features']
-            y = data['target']
-            x, y = x.to(self.device), y.to(self.device)
-            self._run_train_step(x, y, batch, size)
+            xtrain = data['features']
+            ytrain = data['target']
+            self._run_train_step(xtrain, ytrain, batch, size)
 
         if valid_loader is not None:
             size = len(valid_loader)
             with torch.no_grad():
-                for batch, data in enumerate(valid_loader):
-                    xval = data['features']
-                    yval = data['target']
-                    xval, yval = xval.to(self.device), yval.to(self.device)
-                    self.evaluate(xval, yval, batch, size)
+                for batch_val, data_val in enumerate(valid_loader):
+                    xval = data_val['features']
+                    yval = data_val['target']
+                    self.evaluate(xval, yval, batch_val + 1, size)
 
     def evaluate(self, x, y, batch, size):
         loss = 0.0
@@ -104,9 +106,11 @@ class Trainer:
         x, y = x.to(self.device), y.to(self.device)
         pred = self.model(x)
         loss += self.loss_fn(pred, y)#.item()
+        self.valid_loss.append(loss.item())
         print(f'val-loss: {loss.item()} [{batch * len(x)}/{size}]')
 
     def _run_train_step(self, x, y, batch, size):
+        x, y = x.to(self.device), y.to(self.device)
         pred = self.model(x)
         loss = self.loss_fn(pred, y)
         self.optimizer.zero_grad()
@@ -115,3 +119,15 @@ class Trainer:
         self.train_loss.append(loss.item())
         # if batch % 100 == 0:
         print(f'loss: {loss.item()} [{batch * len(x)}/{size}]')
+
+    def get_loss(self, loss_type='train'):
+        if loss_type == 'train':
+            return self.train_loss
+        else:
+            if len(self.valid_loss):
+                return self.valid_loss
+
+    def save_model(self):
+        pass
+
+    
