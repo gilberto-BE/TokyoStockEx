@@ -13,17 +13,32 @@ pl.utilities.seed.seed_everything(seed=42)
 
 
 class NeuralNetwork(nn.Module):
-    def __init__(self, in_features, out_features, units=512):
+    def __init__(
+        self, 
+        in_features, 
+        out_features, 
+        units=512, 
+        num_embedding=None, 
+        embedding_dim=None
+        ):
+
         super(NeuralNetwork, self).__init__()
         self.in_features = in_features
         self.out_features = out_features
         self.units = units
+        self.num_embedding = num_embedding
+        self.embedding_dim = embedding_dim
         self.flatten = nn.Flatten()
+        self.embedding = nn.Embedding(self.num_embedding, self.embedding_dim)
         self.input_linear = nn.Linear(self.in_features, self.units)
         self.hidden_layer = nn.Linear(self.units, self.units)
         self.output_layer = nn.Linear(self.units, self.out_features)
 
-    def forward(self, x):
+    def forward(self, x, x_cat=None):
+        """Add categorical data"""
+        if x_cat:
+            x_c = self.embedding(x_cat)
+            x = torch.cat((x, x_c), dim=1)
         x = self.flatten(x)
         x = F.relu(self.input_linear(x))
         x = F.relu(self.hidden_layer(x))
@@ -40,7 +55,7 @@ class Trainer:
         self, 
         model, 
         optimizer_name='rmsprop', 
-        lr=0.003, 
+        lr=3e-6, 
         loss_fn_name='mse'
         ):
 
@@ -86,7 +101,8 @@ class Trainer:
 
     def fit_one_epoch(self, train_loader, valid_loader=None, use_cyclic_lr=False):
         if use_cyclic_lr:
-            scheduler = torch.optim.lr_scheduler.CyclicLR(self.optimizer, base_lr=0.01, max_lr=0.1)
+            """add parameters for scheduler to constructor."""
+            scheduler = torch.optim.lr_scheduler.CyclicLR(self.optimizer, base_lr=self.lr, max_lr=0.1)
         size = len(train_loader)
         self.model.to(self.device).train()
         for batch, data in enumerate(train_loader):
