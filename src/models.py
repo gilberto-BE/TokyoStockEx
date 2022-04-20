@@ -84,13 +84,15 @@ class Trainer:
             print(f'Epoch: <<< {epoch} >>>')
             self.fit_one_epoch(train_loader, valid_loader)
 
-    def fit_one_epoch(self, train_loader, valid_loader=None):
+    def fit_one_epoch(self, train_loader, valid_loader=None, use_cyclic_lr=False):
+        if use_cyclic_lr:
+            scheduler = torch.optim.lr_scheduler.CyclicLR(self.optimizer, base_lr=0.01, max_lr=0.1)
         size = len(train_loader)
         self.model.to(self.device).train()
         for batch, data in enumerate(train_loader):
             xtrain = data['features']
             ytrain = data['target']
-            self._run_train_step(xtrain, ytrain, batch, size)
+            self._run_train_step(xtrain, ytrain, batch, size, scheduler)
 
         if valid_loader is not None:
             size = len(valid_loader)
@@ -109,7 +111,7 @@ class Trainer:
         self.valid_loss.append(loss.item())
         print(f'val-loss: {loss.item()} [{batch * len(x)}/{size}]')
 
-    def _run_train_step(self, x, y, batch, size):
+    def _run_train_step(self, x, y, batch, size, scheduler):
         x, y = x.to(self.device), y.to(self.device)
         pred = self.model(x)
         loss = self.loss_fn(pred, y)
@@ -119,6 +121,8 @@ class Trainer:
         self.train_loss.append(loss.item())
         # if batch % 100 == 0:
         print(f'loss: {loss.item()} [{batch * len(x)}/{size}]')
+        if scheduler:
+            scheduler.step()
 
     def get_loss(self, loss_type='train'):
         if loss_type == 'train':
