@@ -3,6 +3,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader, Dataset
 from sklearn.impute import SimpleImputer
+import pandas as pd
 
 
 
@@ -52,7 +53,7 @@ def date_features(df, date_col=None):
 def preprocess(
     df, 
     target_col='Target',
-    num_targets=1, 
+    target_dim=1, 
     continous_cols=['Open', 'Close', 'High', 'Low', 'Volume']
     ):
     """
@@ -60,8 +61,11 @@ def preprocess(
     -----------------
     Return x, y
     """
-    y = df[target_col].dropna().to_numpy().reshape(len(df), num_targets)
+    rows = len(df)
+    print('no_rows:', rows)
+    y = df[target_col].dropna().to_numpy().reshape(rows, target_dim)
     x = df.drop(target_col, axis=1)
+    x = x[continous_cols]
 
     if continous_cols:
         x[continous_cols] = x[continous_cols].pct_change()
@@ -69,28 +73,48 @@ def preprocess(
     return x, y
 
 
+def cont_cat_split(df, col_type):
+    cat = df.select_dtypes(include=col_type)
+    cat_cols = cat.columns
+    cont = df.drop(cat_cols, axis=1)
+    return cont, cat
+
+
 class ToTorch(Dataset):
 
     def __init__(
             self,
-            features,
-            target
+            num_features,
+            target,
+            cat_features=None
             ):
-        self.features = features
+        self.num_features = num_features
         self.target = target
+        self.cat_features = cat_features
 
     def __len__(self):
-        return len(self.features)
+        return len(self.num_features)
 
     def __getitem__(self, idx):
-        features = self.features[idx]
+        num_features = self.num_features[idx]
         target = self.target[idx]
+        cat_features = self.cat_features[idx]
+
+        if self.cat_features is not None:
+            return {
+                'num_features': torch.from_numpy(np.array(num_features)).float(), 
+                'target': torch.from_numpy(np.array(target)).float(),
+                'cat_features': torch.from_numpy(np.array(cat_features)).int()
+                }
+
         return {
-            'features': torch.from_numpy(np.array(features)).float(), 
+            'num_features': torch.from_numpy(np.array(num_features)).float(), 
             'target': torch.from_numpy(np.array(target)).float()
             }
     
 
-def get_loader(x, y, batch_size):
-    # Return dict with {'features', 'targets'}
+def get_loader(x, y, batch_size, x_cat=None):
+    # Return dict with {'num_features', 'targets'}
+    if x_cat is not None:
+        return DataLoader(ToTorch(x, y, x_cat), batch_size=batch_size)
     return DataLoader(ToTorch(x, y), batch_size=batch_size)
