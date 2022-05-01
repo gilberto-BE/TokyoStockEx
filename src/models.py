@@ -33,7 +33,7 @@ class NeuralNetwork(nn.Module):
             self.embedding = nn.Embedding(self.num_embedding, self.embedding_dim)
 
         # input dim to emb_input is embedding_dim * categorical_features 
-        self.emb_input = nn.Linear(6, self.units)
+        self.emb_input = nn.Linear(6, 8)
         self.emb_output = nn.Linear(self.units, self.out_features)
         
         self.cont_input = nn.Linear(self.in_features, self.units)
@@ -44,13 +44,13 @@ class NeuralNetwork(nn.Module):
         """Add categorical data"""
         if x_cat is not None:
             # x = torch.cat((x, x_cat), dim=1)
-            print('x.shape:', x.shape)
-            print('x_cat.shape before flatten:', x_cat.shape)
+            print('x.shape:', x.size())
+            print('x_cat.shape before flatten:', x_cat.size())
             x_cat = self.embedding(x_cat).view((x_cat.shape[0], -1))#.view((1, -1))
-            print('x_cat after embedding:', x_cat.shape) # shape: (1, 6)
+            print('x_cat after embedding:', x_cat.size()) # shape: (1, 6)
             x_out = F.relu(self.emb_input(x_cat))
             x_out = self.emb_output(x_cat)#.view(x_cat.shape[0], -1)
-            print('x_cat.shape from self.emb_output():', x_cat.shape)
+            print('x_cat.shape from self.emb_output():', x_cat.size())
             print()
             # x = torch.cat((x, x_cat), dim=1)
 
