@@ -33,7 +33,7 @@ class NeuralNetwork(nn.Module):
             self.embedding = nn.Embedding(self.num_embedding, self.embedding_dim)
 
         # input dim to emb_input is embedding_dim * categorical_features 
-        self.emb_input = nn.Linear(self.embedding_dim, self.units)
+        self.emb_input = nn.Linear(3, self.units)
         self.emb_output = nn.Linear(self.units, self.out_features)
         
         self.cont_input = nn.Linear(self.in_features, self.units)
