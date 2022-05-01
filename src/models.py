@@ -48,7 +48,7 @@ class NeuralNetwork(nn.Module):
             print('x_cat.shape before flatten:', x_cat.size())
             x_out = self.embedding(x_cat).view((-1, x_cat.shape[0]))#.view((1, -1))
             print('x_cat after embedding:', x_cat.size()) # shape: (1, 6)
-            x_out = self.flatten(x_out)
+            # x_out = self.flatten(x_out)
             x_out = F.relu(self.emb_input(x_out))
             print('x_out.size():', x_out.size())
             x_out = self.emb_output(x_cat)#.view(x_cat.shape[0], -1)
