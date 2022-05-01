@@ -31,19 +31,38 @@ class NeuralNetwork(nn.Module):
         self.flatten = nn.Flatten()
         if num_embedding and embedding_dim:
             self.embedding = nn.Embedding(self.num_embedding, self.embedding_dim)
+
+        # input dim to emb_input is embedding_dim * categorical_features 
+        self.emb_input = nn.Linear(6, self.units)
+        self.emb_output = nn.Linear(self.units, self.out_features)
         
-        self.input_linear = nn.Linear(self.in_features, self.units)
-        self.hidden_layer = nn.Linear(self.units, self.units)
-        self.output_layer = nn.Linear(self.units, self.out_features)
+        self.cont_input = nn.Linear(self.in_features, self.units)
+        self.hidden_layer = nn.Linear(self.units + self.embedding_dim, self.units + self.embedding_dim)
+        self.output_layer = nn.Linear(self.units + self.embedding_dim, self.out_features)
 
     def forward(self, x, x_cat=None):
         """Add categorical data"""
         if x_cat is not None:
-            x_c = self.embedding(x_cat)
-            x = torch.cat((x, x_c), dim=1)
+            # x = torch.cat((x, x_cat), dim=1)
+            print('x.shape:', x.shape)
+            print('x_cat.shape before flatten:', x_cat.shape)
+            x_cat = self.embedding(x_cat).view((x_cat.shape[0], -1))#.view((1, -1))
+            print('x_cat after embedding:', x_cat.shape) # shape: (1, 6)
+            x_out = F.relu(self.emb_input(x_cat))
+            x_out = self.emb_output(x_cat)#.view(x_cat.shape[0], -1)
+            print('x_cat.shape from self.emb_output():', x_cat.shape)
+            print()
+            # x = torch.cat((x, x_cat), dim=1)
+
         x = self.flatten(x)
-        x = F.relu(self.input_linear(x))
+        print('x.shape after second flatten:', x.shape)
+        x = F.relu(self.cont_input(x))
+        print('x.shape after F.relu(self.cont_input():', x.shape)
+        x = torch.cat((x, x_out), dim=1)
+        print('x.shape after torch.cat:', x.shape)
         x = F.relu(self.hidden_layer(x))
+        print('x.shape right before output layer:', x.shape)
+        print()
         x = self.output_layer(x)
         return x
     
@@ -106,7 +125,13 @@ class Trainer:
             print(f'Epoch: <<< {epoch} >>>')
             self.fit_one_epoch(train_loader, valid_loader)
 
-    def fit_one_epoch(self, train_loader, valid_loader=None, use_cyclic_lr=False, x_cat=None):
+    def fit_one_epoch(
+        self, 
+        train_loader, 
+        valid_loader=None, 
+        use_cyclic_lr=False, 
+        x_cat=None
+        ):
         if use_cyclic_lr:
             """add parameters for scheduler to constructor."""
             scheduler = torch.optim.lr_scheduler.CyclicLR(self.optimizer, base_lr=self.lr, max_lr=0.1)
@@ -137,24 +162,26 @@ class Trainer:
         if x_cat is not None:
             x_cat = x_cat.to(self.device)
             pred = self.model(x, x_cat)
-        pred = self.model(x)
+        else:
+            pred = self.model(x)
         loss += self.loss_fn(pred, y)#.item()
         self.valid_loss.append(loss.item())
-        print(f'val-loss: {loss.item()} [{batch * len(x)}/{size}]')
+        print(f'Val-Loss: {loss.item()} [{batch * len(x)}/{size}]')
 
     def _run_train_step(self, x, y, batch, size, scheduler, x_cat=None):
         x, y = x.to(self.device), y.to(self.device)
         if x_cat is not None:
             x_cat = x_cat.to(self.device)
             pred = self.model(x, x_cat)
-        pred = self.model(x)
+        else:
+            pred = self.model(x)
         loss = self.loss_fn(pred, y)
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
         self.train_loss.append(loss.item())
         # if batch % 100 == 0:
-        print(f'loss: {loss.item()} [{batch * len(x)}/{size}]')
+        print(f'Train-Loss: {loss.item()} [{batch * len(x)}/{size}]')
         if scheduler:
             scheduler.step()
 
