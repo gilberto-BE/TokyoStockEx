@@ -10,7 +10,56 @@ import torch.nn as nn
 import torch.optim as optim
 import torchmetrics as TM
 pl.utilities.seed.seed_everything(seed=42)
+from torch import nn, Tensor
+import math
 
+
+class EmbeddingNetwork(nn.Module):
+    def __init__(
+        self, 
+        units, 
+        no_embedding, 
+        emb_dim
+    ):
+        super(EmbeddingNetwork, self).__init__()
+        self.units=units
+        self.no_embedding = no_embedding
+        self.emb_dim = emb_dim
+        self.embedding = nn.Embedding(self.no_embedding, self.emb_dim)
+        self.linear = nn.Linear(self.emb_dim, self.units)
+        self.out = nn.Linear(self.units, 1)
+        
+    def forward(self, x):
+        x = F.relu(self.embedding(x))
+        print('x.shape after F.relu(embedding(k)):', x.shape)
+        x = F.relu(self.linear(x))
+        print('x.shape after linear + relu:', x.shape)
+        x = self.out(x)
+        print('x.shape after self.out(x):', x.shape)
+        print()
+        return x
+
+
+class PositionalEncoding(nn.Module):
+
+    def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 5000):
+        super().__init__()
+        self.dropout = nn.Dropout(p=dropout)
+
+        position = torch.arange(max_len).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model))
+        pe = torch.zeros(max_len, 1, d_model)
+        pe[:, 0, 0::2] = torch.sin(position * div_term)
+        pe[:, 0, 1::2] = torch.cos(position * div_term)
+        self.register_buffer('pe', pe)
+
+    def forward(self, x: Tensor) -> Tensor:
+        """
+        Args:
+            x: Tensor, shape [seq_len, batch_size, embedding_dim]
+        """
+        x = x + self.pe[ :x.size(0)]
+        return self.dropout(x)
 
 class NeuralNetwork(nn.Module):
     
@@ -19,52 +68,35 @@ class NeuralNetwork(nn.Module):
         in_features, 
         out_features, 
         units=512, 
-        num_embedding=None, 
-        embedding_dim=None):
+        no_embedding=None, 
+        emb_dim=None):
 
         super(NeuralNetwork, self).__init__()
         self.in_features = in_features
         self.out_features = out_features
         self.units = units
-        self.num_embedding = num_embedding
-        self.embedding_dim = embedding_dim
+        self.no_embedding = no_embedding
+        self.emb_dim = emb_dim
         self.flatten = nn.Flatten()
-        if num_embedding and embedding_dim:
-            self.embedding = nn.Embedding(self.num_embedding, self.embedding_dim)
-
-        # input dim to emb_input is embedding_dim * categorical_features 
-        self.emb_input = nn.Linear(6, self.units)
-        self.emb_output = nn.Linear(self.units, self.out_features)
+        if no_embedding and emb_dim:
+            self.embedding = nn.Embedding(self.no_embedding, self.emb_dim)
+            self.emb_input = nn.Linear(self.emb_dim, self.units)
+            self.emb_output = nn.Linear(self.units, self.out_features)
         
         self.cont_input = nn.Linear(self.in_features, self.units)
-        self.hidden_layer = nn.Linear(self.units + self.embedding_dim, self.units + self.embedding_dim)
-        self.output_layer = nn.Linear(self.units + self.embedding_dim, self.out_features)
+        self.hidden_layer = nn.Linear(8, 8)
+        self.output_layer = nn.Linear(8, self.out_features)
 
     def forward(self, x, x_cat=None):
         """Add categorical data"""
         if x_cat is not None:
-            # x = torch.cat((x, x_cat), dim=1)
-            print('x.shape:', x.size())
-            print('x_cat.shape before flatten:', x_cat.size())
-            x_out = self.embedding(x_cat).view((x_cat.shape[0], -1))
-            print('x_cat after embedding:', x_out.size()) # shape: (1, 6)
-            # x_out = self.flatten(x_out)
+            x_out = self.embedding(x_cat)#.view((x_cat.shape[0], -1))
             x_out = F.relu(self.emb_input(x_out))
-            print('x_out.size():', x_out.size())
             x_out = self.emb_output(x_out)#.view(x_cat.shape[0], -1)
-            print('x_cat.shape from self.emb_output():', x_out.size())
-            print()
-            # x = torch.cat((x, x_cat), dim=1)
 
-        x = self.flatten(x)
-        print('x.shape after second flatten:', x.shape)
         x = F.relu(self.cont_input(x))
-        print('x.shape after F.relu(self.cont_input():', x.shape)
-        x = torch.cat((x, x_out), dim=1)
-        print('x.shape after torch.cat:', x.shape)
+        x = torch.cat((x, x_out.view((x_cat.shape[0], -1))), dim=1)
         x = F.relu(self.hidden_layer(x))
-        print('x.shape right before output layer:', x.shape)
-        print()
         x = self.output_layer(x)
         return x
     
@@ -94,7 +126,7 @@ class Trainer:
         self.train_loss = []
         self.valid_loss = []
         self.test_loss = []
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = "cpu" #"cuda" if torch.cuda.is_available() else "cpu"
         print(f"Using {self.device}-device")
 
         if self.loss_fn_name == 'mse':
