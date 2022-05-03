@@ -200,7 +200,7 @@ class Trainer:
             pred = self.model(x)
         loss += self.loss_fn(pred, y)#.item()
         self.valid_loss.append(loss.item())
-        print(f'Val-Loss: {loss.item()} [{batch * len(x)}/{size}]')
+        print(f'Val-Loss: {loss.item()} [{batch}/{size}]')
 
     def _run_train_step(self, x, y, batch, size, scheduler, x_cat=None):
         x, y = x.to(self.device), y.to(self.device)
@@ -215,7 +215,7 @@ class Trainer:
         self.optimizer.step()
         self.train_loss.append(loss.item())
         # if batch % 100 == 0:
-        print(f'Train-Loss: {loss.item()} [{batch * len(x)}/{size}]')
+        print(f'Train-Loss: {loss.item()} [{batch }/{size}]')
         if scheduler:
             scheduler.step()
 

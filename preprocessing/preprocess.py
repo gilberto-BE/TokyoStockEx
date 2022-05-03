@@ -6,7 +6,6 @@ from sklearn.impute import SimpleImputer
 import pandas as pd
 
 
-
 def ts_split(raw_data, train_size=0.75, val_size=None):
 
     train_sz = int(len(raw_data) * train_size)
