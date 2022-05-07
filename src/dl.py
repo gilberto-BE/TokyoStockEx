@@ -66,10 +66,19 @@ class NeuralNetwork(nn.Module):
     def __init__(
         self, 
         in_features, 
-        out_features, 
+        out_features,
+        categorical_dim=3, 
         units=512, 
         no_embedding=None, 
         emb_dim=None):
+
+        """
+        TODO:
+        * Add normalization layers
+        * Add regularization
+        * Test other optimizers
+        * Add positional encoding
+        """
 
         super(NeuralNetwork, self).__init__()
         self.in_features = in_features
@@ -77,6 +86,7 @@ class NeuralNetwork(nn.Module):
         self.units = units
         self.no_embedding = no_embedding
         self.emb_dim = emb_dim
+        self.categorical_dim = categorical_dim
         self.flatten = nn.Flatten()
         if no_embedding and emb_dim:
             self.embedding = nn.Embedding(self.no_embedding, self.emb_dim)
@@ -84,16 +94,24 @@ class NeuralNetwork(nn.Module):
             self.emb_output = nn.Linear(self.units, self.out_features)
         
         self.cont_input = nn.Linear(self.in_features, self.units)
-        self.hidden_layer = nn.Linear(8, 8)
-        self.output_layer = nn.Linear(8, self.out_features)
+        self.hidden_layer = nn.Linear(
+            self.units + self.categorical_dim, self.units + self.categorical_dim
+            )
+        self.output_layer = nn.Linear(
+            self.units + self.categorical_dim, self.out_features
+            )
 
     def forward(self, x, x_cat=None):
-        """Add categorical data"""
+        """
+        TODO:
+        * Add residual connictions.
+        
+        """
         if x_cat is not None:
-            x_out = self.embedding(x_cat)#.view((x_cat.shape[0], -1))
+            x_out = self.embedding(x_cat)
             x_out = F.relu(self.emb_input(x_out))
-            x_out = self.emb_output(x_out)#.view(x_cat.shape[0], -1)
-
+            x_out = torch.real(torch.fft.fft2(self.emb_output(x_out)))
+        x = torch.real(torch.fft.rfft(x))
         x = F.relu(self.cont_input(x))
         x = torch.cat((x, x_out.view((x_cat.shape[0], -1))), dim=1)
         x = F.relu(self.hidden_layer(x))
@@ -154,17 +172,15 @@ class Trainer:
         print(f'Allowed opmimizer names are:')
         print(f'Allowed loss function names are:')
 
-    def fit_epochs(self, train_loader, valid_loader=None, epochs=5):
-        for epoch in epochs:
+    def fit_epochs(
+        self, train_loader, valid_loader=None, use_cyclic_lr=False, epochs=5, x_cat=None
+        ):
+        for epoch in range(epochs):
             print(f'Epoch: <<< {epoch} >>>')
-            self.fit_one_epoch(train_loader, valid_loader)
+            self.fit_one_epoch(train_loader, valid_loader, use_cyclic_lr, x_cat)
 
     def fit_one_epoch(
-        self, 
-        train_loader, 
-        valid_loader=None, 
-        use_cyclic_lr=False, 
-        x_cat=None
+        self, train_loader, valid_loader=None, use_cyclic_lr=False, x_cat=None
         ):
         if use_cyclic_lr:
             """add parameters for scheduler to constructor."""
@@ -177,7 +193,7 @@ class Trainer:
                 xtrain_cat = data['cat_features']
             
             ytrain = data['target']
-            self._run_train_step(xtrain, ytrain, batch, size, scheduler, xtrain_cat)
+            train_loss = self._run_train_step(xtrain, ytrain, batch, size, scheduler, xtrain_cat)
 
         if valid_loader is not None:
             size = len(valid_loader)
@@ -187,7 +203,7 @@ class Trainer:
                     if x_cat is not None:
                         xval_cat = data_val['cat_features']
                     yval = data_val['target']
-                    self.evaluate(xval, yval, batch_val + 1, size, xval_cat)
+                    val_loss = self.evaluate(xval, yval, batch_val + 1, size, xval_cat)
 
     def evaluate(self, x, y, batch, size, x_cat=None):
         loss = 0.0
@@ -201,6 +217,7 @@ class Trainer:
         loss += self.loss_fn(pred, y)#.item()
         self.valid_loss.append(loss.item())
         print(f'Val-Loss: {loss.item()} [{batch}/{size}]')
+        return loss.item()
 
     def _run_train_step(self, x, y, batch, size, scheduler, x_cat=None):
         x, y = x.to(self.device), y.to(self.device)
@@ -218,12 +235,16 @@ class Trainer:
         print(f'Train-Loss: {loss.item()} [{batch }/{size}]')
         if scheduler:
             scheduler.step()
+        return loss.item()
 
-    def get_loss(self, loss_type='train'):
+    def get_error_loss(self, loss_type='train'):
+        """
+        Get error-loss for training and validation sets.
+        """
         if loss_type == 'train':
             return self.train_loss
         else:
-            if len(self.valid_loss):
+            if len(self.valid_loss) > 0:
                 return self.valid_loss
 
     def save_model(self):

@@ -61,7 +61,6 @@ def preprocess(
     Return x, y
     """
     rows = len(df)
-    print('no_rows:', rows)
     y = df[target_col].dropna().to_numpy().reshape(rows, target_dim)
     x = df.drop(target_col, axis=1)
     x = x[continous_cols]
