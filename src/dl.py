@@ -61,6 +61,7 @@ class PositionalEncoding(nn.Module):
         x = x + self.pe[ :x.size(0)]
         return self.dropout(x)
 
+
 class NeuralNetwork(nn.Module):
     
     def __init__(
@@ -90,16 +91,19 @@ class NeuralNetwork(nn.Module):
         self.flatten = nn.Flatten()
         if no_embedding and emb_dim:
             self.embedding = nn.Embedding(self.no_embedding, self.emb_dim)
-            self.emb_input = nn.Linear(self.emb_dim, self.units)
-            self.emb_output = nn.Linear(self.units, self.out_features)
+            self.embedding_to_hidden = nn.Linear(self.emb_dim, self.units)
+            self.embedding_output = nn.Linear(self.units, self.out_features)
         
         self.cont_input = nn.Linear(self.in_features, self.units)
         self.hidden_layer = nn.Linear(
-            self.units + self.categorical_dim, self.units + self.categorical_dim
+            self.units + self.categorical_dim, 
+            self.units + self.categorical_dim
             )
         self.output_layer = nn.Linear(
-            self.units + self.categorical_dim, self.out_features
+            self.units + self.categorical_dim, 
+            self.out_features
             )
+        # self.pool_layer = nn.MaxPool1d(3, 2)
 
     def forward(self, x, x_cat=None):
         """
@@ -108,13 +112,21 @@ class NeuralNetwork(nn.Module):
         
         """
         if x_cat is not None:
+            emb_residual = x_cat
             x_out = self.embedding(x_cat)
-            x_out = F.relu(self.emb_input(x_out))
-            x_out = torch.real(torch.fft.fft2(self.emb_output(x_out)))
+            x_out = F.relu(self.embedding_to_hidden(x_out))
+            x_out = torch.squeeze(torch.real(torch.fft.fft2(self.embedding_output(x_out))))
+            # x_out += emb_residual
+
+        cont_residual = x
         x = torch.real(torch.fft.rfft(x))
         x = F.relu(self.cont_input(x))
-        x = torch.cat((x, x_out.view((x_cat.shape[0], -1))), dim=1)
+        x += cont_residual
+        x = torch.cat((x, x_out.view((x_out.shape[0], -1))), dim=1)
+        tot_residual = x
         x = F.relu(self.hidden_layer(x))
+        x = F.relu(self.hidden_layer(x))
+        x += tot_residual
         x = self.output_layer(x)
         return x
     
@@ -144,7 +156,7 @@ class Trainer:
         self.train_loss = []
         self.valid_loss = []
         self.test_loss = []
-        self.device = "cpu" #"cuda" if torch.cuda.is_available() else "cpu"
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
         print(f"Using {self.device}-device")
 
         if self.loss_fn_name == 'mse':
