@@ -1,6 +1,11 @@
 
 import numpy as np
 import pandas as pd
+from torchmetrics import (
+    MeanSquaredError, 
+    # SymmetricMeanAbsolutePercentageError,
+    R2Score
+    )
 
 
 def calc_spread_return_sharpe(
@@ -43,5 +48,16 @@ def calc_spread_return_sharpe(
     sharpe_ratio = buf.mean() / buf.std()
     return sharpe_ratio
 
-def score(R):
-    pass
+
+def metrics(ytrue, ypred):
+    mse = MeanSquaredError()
+    # smape = SymmetricMeanAbsolutePercentageError()
+    r2_score = R2Score()
+
+    metrics_dict = {
+        'mse': mse(ytrue, ypred), 
+        # 'smape': smape(ytrue, ypred),
+        'r2_score': r2_score(ytrue, ypred)
+        }
+
+    return metrics_dict

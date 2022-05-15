@@ -12,6 +12,7 @@ import torchmetrics as TM
 pl.utilities.seed.seed_everything(seed=42)
 from torch import nn, Tensor
 import math
+from metrics import metrics
 
 
 class EmbeddingNetwork(nn.Module):
@@ -71,7 +72,9 @@ class NeuralNetwork(nn.Module):
         categorical_dim=3, 
         units=512, 
         no_embedding=None, 
-        emb_dim=None):
+        emb_dim=None,
+        dropout=0.1
+        ):
 
         """
         TODO:
@@ -88,6 +91,7 @@ class NeuralNetwork(nn.Module):
         self.no_embedding = no_embedding
         self.emb_dim = emb_dim
         self.categorical_dim = categorical_dim
+        self.dropout = dropout
         self.flatten = nn.Flatten()
         if no_embedding and emb_dim:
             self.embedding = nn.Embedding(self.no_embedding, self.emb_dim)
@@ -103,12 +107,20 @@ class NeuralNetwork(nn.Module):
             self.units + self.categorical_dim, 
             self.out_features
             )
+        
+        self.layernom_embedding = nn.LayerNorm(self.emb_dim)
+        self.layernorm_cont = nn.LayerNorm(self.out_features)
+        self.batch_norm_emb = nn.BatchNorm2d(self.emb_dim)
+        self.batch_norm_cont = nn.BatchNorm1d(self.units + self.categorical_dim)
+        self.dropout = nn.Dropout(self.dropout)
+        # self.layernorm_tot = nn.LayerNorm()
         # self.pool_layer = nn.MaxPool1d(3, 2)
 
     def forward(self, x, x_cat=None):
         """
         TODO:
         * Add residual connictions.
+
         
         """
         if x_cat is not None:
@@ -125,8 +137,12 @@ class NeuralNetwork(nn.Module):
         x = torch.cat((x, x_out.view((x_out.shape[0], -1))), dim=1)
         tot_residual = x
         x = F.relu(self.hidden_layer(x))
+        x = self.dropout(x)
+        # x = self.batch_norm_cont(x)
         x = F.relu(self.hidden_layer(x))
+        # x = self.batch_norm_cont(x)
         x += tot_residual
+        x = self.dropout(x)
         x = self.output_layer(x)
         return x
     
@@ -194,6 +210,8 @@ class Trainer:
     def fit_one_epoch(
         self, train_loader, valid_loader=None, use_cyclic_lr=False, x_cat=None
         ):
+        train_preds = torch.tensor([])
+        val_preds = torch.tensor([])
         if use_cyclic_lr:
             """add parameters for scheduler to constructor."""
             scheduler = torch.optim.lr_scheduler.CyclicLR(self.optimizer, base_lr=self.lr, max_lr=0.1)
@@ -205,7 +223,8 @@ class Trainer:
                 xtrain_cat = data['cat_features']
             
             ytrain = data['target']
-            train_loss = self._run_train_step(xtrain, ytrain, batch, size, scheduler, xtrain_cat)
+            train_pred, train_loss = self._run_train_step(xtrain, ytrain, batch, size, scheduler, xtrain_cat)
+            train_preds.add_(train_pred)
 
         if valid_loader is not None:
             size = len(valid_loader)
@@ -215,7 +234,8 @@ class Trainer:
                     if x_cat is not None:
                         xval_cat = data_val['cat_features']
                     yval = data_val['target']
-                    val_loss = self.evaluate(xval, yval, batch_val + 1, size, xval_cat)
+                    val_pred, val_loss = self.evaluate(xval, yval, batch_val + 1, size, xval_cat)
+                    val_preds.add_(val_pred)
 
     def evaluate(self, x, y, batch, size, x_cat=None):
         loss = 0.0
@@ -229,7 +249,7 @@ class Trainer:
         loss += self.loss_fn(pred, y)#.item()
         self.valid_loss.append(loss.item())
         print(f'Val-Loss: {loss.item()} [{batch}/{size}]')
-        return loss.item()
+        return pred, loss.item()
 
     def _run_train_step(self, x, y, batch, size, scheduler, x_cat=None):
         x, y = x.to(self.device), y.to(self.device)
@@ -247,7 +267,7 @@ class Trainer:
         print(f'Train-Loss: {loss.item()} [{batch }/{size}]')
         if scheduler:
             scheduler.step()
-        return loss.item()
+        return pred, loss.item()
 
     def get_error_loss(self, loss_type='train'):
         """
