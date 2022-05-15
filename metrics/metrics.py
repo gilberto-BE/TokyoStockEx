@@ -4,7 +4,9 @@ import pandas as pd
 from torchmetrics import (
     MeanSquaredError, 
     # SymmetricMeanAbsolutePercentageError,
-    R2Score
+    R2Score,
+    MeanAbsoluteError,
+    # MeanAbsolutePercentageError
     )
 
 
@@ -53,11 +55,15 @@ def metrics(ytrue, ypred):
     mse = MeanSquaredError()
     # smape = SymmetricMeanAbsolutePercentageError()
     r2_score = R2Score()
+    mae = MeanAbsoluteError()
+    # wmape = MeanAbsolutePercentageError()
 
     metrics_dict = {
-        'mse': mse(ytrue, ypred), 
+        'mse': mse(ytrue, ypred).item(), 
         # 'smape': smape(ytrue, ypred),
-        'r2_score': r2_score(ytrue, ypred)
+        # 'r2_score': r2_score(ytrue, ypred).item(),
+        'mae': mae(ytrue, ypred).item(),
+        # 'mape': wmape(ytrue, ypred).item()
         }
 
     return metrics_dict

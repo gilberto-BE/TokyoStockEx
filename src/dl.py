@@ -44,7 +44,7 @@ class EmbeddingNetwork(nn.Module):
 class PositionalEncoding(nn.Module):
 
     def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 5000):
-        super().__init__()
+        super(PositionalEncoding, self).__init__()
         self.dropout = nn.Dropout(p=dropout)
 
         position = torch.arange(max_len).unsqueeze(1)
@@ -59,8 +59,31 @@ class PositionalEncoding(nn.Module):
         Args:
             x: Tensor, shape [seq_len, batch_size, embedding_dim]
         """
-        x = x + self.pe[ :x.size(0)]
+        x += self.pe[ :x.size(0)]
         return self.dropout(x)
+
+
+class SimpleNN(nn.Module):
+    """
+    To be used as component in 
+    more complex models.
+    """
+    def __init__(self, in_features, out_features, units):
+        super(SimpleNN, self).__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        self.units = units
+        self.hidden_layer = nn.Linear(self.units, self.units)
+
+    def forward(self, x):
+        res = x
+        x = F.relu(self.hidden_layer(x))
+        x = self.dropout(x)
+        x = F.relu(self.hidden_layer(x))
+        x = self.dropout(x)
+        x += res
+        return x
+
 
 
 class NeuralNetwork(nn.Module):
@@ -73,7 +96,8 @@ class NeuralNetwork(nn.Module):
         units=512, 
         no_embedding=None, 
         emb_dim=None,
-        dropout=0.1
+        dropout=0.1,
+        hidden_layers=3
         ):
 
         """
@@ -135,14 +159,35 @@ class NeuralNetwork(nn.Module):
         x = F.relu(self.cont_input(x))
         x += cont_residual
         x = torch.cat((x, x_out.view((x_out.shape[0], -1))), dim=1)
-        tot_residual = x
+        
+        res = x
         x = F.relu(self.hidden_layer(x))
         x = self.dropout(x)
-        # x = self.batch_norm_cont(x)
         x = F.relu(self.hidden_layer(x))
-        # x = self.batch_norm_cont(x)
-        x += tot_residual
         x = self.dropout(x)
+        x += res
+        
+        res = x
+        x = F.relu(self.hidden_layer(x))
+        x = self.dropout(x)
+        x = F.relu(self.hidden_layer(x))
+        x = self.dropout(x)
+        x += res
+
+        res = x
+        x = F.relu(self.hidden_layer(x))
+        x = self.dropout(x)
+        x = F.relu(self.hidden_layer(x))
+        x = self.dropout(x)
+        x += res
+
+        res = x
+        x = F.relu(self.hidden_layer(x))
+        x = self.dropout(x)
+        x = F.relu(self.hidden_layer(x))
+        x = self.dropout(x)
+        x += res
+
         x = self.output_layer(x)
         return x
     
@@ -206,12 +251,13 @@ class Trainer:
         for epoch in range(epochs):
             print(f'Epoch: <<< {epoch} >>>')
             self.fit_one_epoch(train_loader, valid_loader, use_cyclic_lr, x_cat)
+            print('.' * 20, f'End of epoch {epoch}','.' * 20)
 
     def fit_one_epoch(
         self, train_loader, valid_loader=None, use_cyclic_lr=False, x_cat=None
         ):
-        train_preds = torch.tensor([])
-        val_preds = torch.tensor([])
+        # train_preds = []
+        # val_preds = []
         if use_cyclic_lr:
             """add parameters for scheduler to constructor."""
             scheduler = torch.optim.lr_scheduler.CyclicLR(self.optimizer, base_lr=self.lr, max_lr=0.1)
@@ -224,7 +270,12 @@ class Trainer:
             
             ytrain = data['target']
             train_pred, train_loss = self._run_train_step(xtrain, ytrain, batch, size, scheduler, xtrain_cat)
-            train_preds.add_(train_pred)
+            # train_preds.append(train_pred)
+            if batch % 10:
+                print(f'train metrics: <<< {metrics(ytrain, train_pred)} >>>')
+            
+            print()
+            # print('train_preds:', torch.cat(train_preds, dim=0))
 
         if valid_loader is not None:
             size = len(valid_loader)
@@ -235,10 +286,12 @@ class Trainer:
                         xval_cat = data_val['cat_features']
                     yval = data_val['target']
                     val_pred, val_loss = self.evaluate(xval, yval, batch_val + 1, size, xval_cat)
-                    val_preds.add_(val_pred)
+                    # val_preds.append(val_pred)
+                    print('val metrics:', metrics(yval, val_pred))
+                print()
 
     def evaluate(self, x, y, batch, size, x_cat=None):
-        loss = 0.0
+        loss = 0
         self.model.eval()
         x, y = x.to(self.device), y.to(self.device)
         if x_cat is not None:
@@ -267,6 +320,7 @@ class Trainer:
         print(f'Train-Loss: {loss.item()} [{batch }/{size}]')
         if scheduler:
             scheduler.step()
+
         return pred, loss.item()
 
     def get_error_loss(self, loss_type='train'):
