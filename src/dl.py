@@ -63,17 +63,18 @@ class PositionalEncoding(nn.Module):
         return self.dropout(x)
 
 
-class SimpleNN(nn.Module):
+class ResNN(nn.Module):
     """
     To be used as component in 
     more complex models.
     """
-    def __init__(self, in_features, out_features, units):
-        super(SimpleNN, self).__init__()
+    def __init__(self, in_features, units, dropout=0.1):
+        super(ResNN, self).__init__()
         self.in_features = in_features
-        self.out_features = out_features
+        # self.out_features = out_features
         self.units = units
-        self.hidden_layer = nn.Linear(self.units, self.units)
+        self.dropout = nn.Dropout(dropout)
+        self.hidden_layer = nn.Linear(self.in_features, self.units)
 
     def forward(self, x):
         res = x
@@ -83,7 +84,6 @@ class SimpleNN(nn.Module):
         x = self.dropout(x)
         x += res
         return x
-
 
 
 class NeuralNetwork(nn.Module):
@@ -115,7 +115,7 @@ class NeuralNetwork(nn.Module):
         self.no_embedding = no_embedding
         self.emb_dim = emb_dim
         self.categorical_dim = categorical_dim
-        self.dropout = dropout
+        # self.dropout = dropout
         self.flatten = nn.Flatten()
         if no_embedding and emb_dim:
             self.embedding = nn.Embedding(self.no_embedding, self.emb_dim)
@@ -132,11 +132,10 @@ class NeuralNetwork(nn.Module):
             self.out_features
             )
         
-        self.layernom_embedding = nn.LayerNorm(self.emb_dim)
-        self.layernorm_cont = nn.LayerNorm(self.out_features)
-        self.batch_norm_emb = nn.BatchNorm2d(self.emb_dim)
-        self.batch_norm_cont = nn.BatchNorm1d(self.units + self.categorical_dim)
-        self.dropout = nn.Dropout(self.dropout)
+        self.dropout = nn.Dropout(dropout)
+        self.position_enc = PositionalEncoding(d_model=self.emb_dim)
+
+        # self.res_nn = ResNN(self.units + self.categorical_dim, self.units + self.categorical_dim)
         # self.layernorm_tot = nn.LayerNorm()
         # self.pool_layer = nn.MaxPool1d(3, 2)
 
@@ -150,11 +149,16 @@ class NeuralNetwork(nn.Module):
         if x_cat is not None:
             emb_residual = x_cat
             x_out = self.embedding(x_cat)
+            x_out = self.position_enc(x_out)
+            # x_out = torch.real(torch.fft.fft2(x_out))
+
             x_out = F.relu(self.embedding_to_hidden(x_out))
             x_out = torch.squeeze(torch.real(torch.fft.fft2(self.embedding_output(x_out))))
+            x_out = self.dropout(x_out)
             # x_out += emb_residual
 
         cont_residual = x
+        
         x = torch.real(torch.fft.rfft(x))
         x = F.relu(self.cont_input(x))
         x += cont_residual
