@@ -4,6 +4,7 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 from sklearn.impute import SimpleImputer
 import pandas as pd
+from sklearn.preprocessing import OrdinalEncoder
 
 
 def ts_split(raw_data, train_size=0.75, val_size=None):
@@ -56,7 +57,6 @@ def preprocess(
     continous_cols=['Open', 'Close', 'High', 'Low', 'Volume']
     ):
     """
-
     -----------------
     Return x, y
     """
@@ -71,8 +71,17 @@ def preprocess(
     return x, y
 
 
-def cont_cat_split(df, col_type):
-    cat = df.select_dtypes(include=col_type)
+def cont_cat_split(df, col_type=None, cat_cols=None):
+    """
+    Return transformer!!!
+    """
+    if cat_cols:
+        cat = df[cat_cols]
+        if 'RowId' in cat_cols:
+           enc = OrdinalEncoder()
+           cat['RowId'] = enc.fit_transform(df['RowId'].to_numpy().reshape(-1, 1))
+    elif col_type is not None:
+        cat = df.select_dtypes(include=col_type)
     cat_cols = cat.columns
     cont = df.drop(cat_cols, axis=1)
     return cont, cat
