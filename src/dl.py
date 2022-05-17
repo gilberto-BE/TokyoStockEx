@@ -162,24 +162,19 @@ class NeuralNetwork(nn.Module):
         x = F.relu(self.cont_input(x))
         x += cont_residual
         x = torch.cat((x, x_out.view((x_out.shape[0], -1))), dim=1)
-        res = x
         x = self.nn_block(x)
-        x += res
         x = self.nn_block(x)
-        res = x
-        x += res
         x = self.nn_block(x)
-        res = x
-        x += res
         x = self.nn_block(x)
-        x += res
         x = self.output_layer(x)
         return x
 
     def nn_block(self, x):
+        res = x
         x = F.relu(self.hidden_layer(x))
         x = self.dropout(x)
         x = F.relu(self.hidden_layer(x))
+        x += res
         x = self.dropout(x)
         return x
     
