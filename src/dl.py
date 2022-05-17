@@ -150,49 +150,37 @@ class NeuralNetwork(nn.Module):
             emb_residual = x_cat
             x_out = self.embedding(x_cat)
             x_out = self.position_enc(x_out)
-            # x_out = torch.real(torch.fft.fft2(x_out))
-
+            x_out = torch.squeeze(torch.real(torch.fft.fft2(x_out)))
             x_out = F.relu(self.embedding_to_hidden(x_out))
-            x_out = torch.squeeze(torch.real(torch.fft.fft2(self.embedding_output(x_out))))
+            x_out = self.dropout(x_out)
+            x_out = F.relu(self.embedding_output(x_out))
+            # x_out = torch.squeeze(torch.real(torch.fft.fft2(self.embedding_output(x_out))))
             x_out = self.dropout(x_out)
             # x_out += emb_residual
-
-        cont_residual = x
-        
         x = torch.real(torch.fft.rfft(x))
+        cont_residual = x
         x = F.relu(self.cont_input(x))
         x += cont_residual
         x = torch.cat((x, x_out.view((x_out.shape[0], -1))), dim=1)
-        
         res = x
-        x = F.relu(self.hidden_layer(x))
-        x = self.dropout(x)
-        x = F.relu(self.hidden_layer(x))
-        x = self.dropout(x)
+        x = self.nn_block(x)
         x += res
-        
+        x = self.nn_block(x)
         res = x
-        x = F.relu(self.hidden_layer(x))
-        x = self.dropout(x)
-        x = F.relu(self.hidden_layer(x))
-        x = self.dropout(x)
         x += res
-
+        x = self.nn_block(x)
         res = x
-        x = F.relu(self.hidden_layer(x))
-        x = self.dropout(x)
-        x = F.relu(self.hidden_layer(x))
-        x = self.dropout(x)
         x += res
-
-        res = x
-        x = F.relu(self.hidden_layer(x))
-        x = self.dropout(x)
-        x = F.relu(self.hidden_layer(x))
-        x = self.dropout(x)
+        x = self.nn_block(x)
         x += res
-
         x = self.output_layer(x)
+        return x
+
+    def nn_block(self, x):
+        x = F.relu(self.hidden_layer(x))
+        x = self.dropout(x)
+        x = F.relu(self.hidden_layer(x))
+        x = self.dropout(x)
         return x
     
 
