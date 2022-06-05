@@ -11,7 +11,8 @@ from torchmetrics import (
 
 
 def calc_spread_return_sharpe(
-    df: pd.DataFrame, portfolio_size: int = 200, 
+    df: pd.DataFrame, 
+    portfolio_size: int = 200, 
     toprank_weight_ratio: float = 2
     ) -> float:
     """
@@ -23,7 +24,9 @@ def calc_spread_return_sharpe(
         (float): sharpe ratio
     """
     def _calc_spread_return_per_day(
-        df, portfolio_size, toprank_weight_ratio
+        df, 
+        portfolio_size, 
+        toprank_weight_ratio
         ):
         """
         Args:
