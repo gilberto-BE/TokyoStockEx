@@ -83,20 +83,20 @@ def create_loaders(train_df, ):
 
     """SELECT ONE STOCK"""
 
-    df_stock = train_df[train_df['SecuritiesCode'] == 1301].drop(['SecuritiesCode', 'Volume'], axis=1)
+    df_single_stock = train_df[train_df['SecuritiesCode'] == 1301].drop(['SecuritiesCode', 'Volume'], axis=1)
 
-    print('df_stock.head()')
-    print(df_stock.head(2))
-    print(df_stock.info())
+    print('df_single_stock.head()')
+    print(df_single_stock.head(2))
+    print(df_single_stock.info())
 
-    df_stock = date_features(df_stock)
+    df_single_stock = date_features(df_single_stock)
 
     """ 
     Add RowId as extra catcol.
     """
-    # cont, cat = cont_cat_split(df_stock, 'int64')
+    # cont, cat = cont_cat_split(df_single_stock, 'int64')
     cat_cols = ['day_of_year', 'month', 'day_of_week', 'RowId']
-    cont, cat = cont_cat_split(df_stock, cat_cols=cat_cols)
+    cont, cat = cont_cat_split(df_single_stock, cat_cols=cat_cols)
     print('categorical shape:', cat.shape)
 
     df_train_cat, df_val_cat = ts_split(cat)
