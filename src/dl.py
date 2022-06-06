@@ -152,11 +152,8 @@ class NeuralNetwork(nn.Module):
             x_cat = self.embedding(x_cat)
             x_cat = self.position_enc(x_cat)
             x_cat = torch.squeeze(torch.real(torch.fft.fft2(x_cat)))
-            print('x.shape after fft.rfft2:', x.shape)
             x_cat = self.embedding_to_hidden(x_cat)
-            print('x_cat after embedding to hidden:', x_cat.shape)
             x_cat = F.relu(x_cat)
-            print('x_cat after embedding plus relu:', x_cat.shape)
             x_cat = self.dropout(x_cat)
             x_cat = F.relu(self.embedding_output(x_cat))
             x_cat = self.dropout(x_cat)
@@ -215,6 +212,7 @@ class Trainer:
             self.loss_fn = nn.MSELoss()
 
         if self.optimizer_name.lower() == 'rmsprop': 
+            self.model.to(self.device)
             self.optimizer = torch.optim.RMSprop(self.model.parameters(), self.lr)
 
         elif self.optimizer_name.lower() == 'adam':
@@ -251,9 +249,9 @@ class Trainer:
         # val_preds = []
         if use_cyclic_lr:
             """add parameters for scheduler to constructor."""
-            scheduler = torch.optim.lr_scheduler.CyclicLR(self.optimizer, base_lr=self.lr, max_lr=0.1)
+            scheduler = torch.optim.lr_scheduler.CyclicLR(self.optimizer, base_lr=self.lr, max_lr=0.01)
         size = len(train_loader)
-        self.model.to(self.device).train()
+        self.model.train()
         for batch, data in enumerate(train_loader):
             xtrain = data['num_features']
             if x_cat is not None:
@@ -262,10 +260,10 @@ class Trainer:
             ytrain = data['target']
             train_pred, train_loss = self._run_train_step(xtrain, ytrain, batch, size, scheduler, xtrain_cat)
             # train_preds.append(train_pred)
-            if batch % 10:
+            if batch % 10 == 0:
+                print(f'Training loss: {train_loss}')
                 print(f'train metrics: <<< {metrics(ytrain, train_pred)} >>>')
             
-            print()
             # print('train_preds:', torch.cat(train_preds, dim=0))
 
         if valid_loader is not None:
@@ -278,10 +276,19 @@ class Trainer:
                     yval = data_val['target']
                     val_pred, val_loss = self.evaluate(xval, yval, batch_val + 1, size, xval_cat)
                     # val_preds.append(val_pred)
-                    print('val metrics:', metrics(yval, val_pred))
-                print()
+                    if batch % 5 == 0:
+                        print(f'Val-loss: {val_loss.item()} [{batch}/{size}]')
+                        print('val metrics:', metrics(yval, val_pred))
 
-    def evaluate(self, x, y, batch, size, x_cat=None):
+    def train_loop(self, train_loader):
+        """Define train-loop here"""
+        pass
+
+    def val_loop(self, val_loader):
+        """Define val-loop here"""
+        pass
+
+    def evaluate(self, x, y, batch, size, x_cat=None, loss_every=20):
         loss = 0
         self.model.eval()
         x, y = x.to(self.device), y.to(self.device)
@@ -292,10 +299,10 @@ class Trainer:
             pred = self.model(x)
         loss = loss + self.loss_fn(pred, y)#.item()
         self.valid_loss.append(loss.item())
-        print(f'Val-Loss: {loss.item()} [{batch}/{size}]')
+        # print(f'Val-Loss: {loss.item()} [{batch}/{size}]')
         return pred, loss.item()
 
-    def _run_train_step(self, x, y, batch, size, scheduler, x_cat=None):
+    def _run_train_step(self, x, y, batch, size, scheduler, x_cat=None, loss_every=20):
         x, y = x.to(self.device), y.to(self.device)
         if x_cat is not None:
             x_cat = x_cat.to(self.device)
@@ -307,8 +314,8 @@ class Trainer:
         loss.backward()
         self.optimizer.step()
         self.train_loss.append(loss.item())
-        # if batch % 100 == 0:
-        print(f'Train-Loss: {loss.item()} [{batch }/{size}]')
+        # if batch % loss_every == 0:
+        #     print(f'Train-Loss: {loss.item()} [{batch }/{size}]')
         if scheduler:
             scheduler.step()
 
