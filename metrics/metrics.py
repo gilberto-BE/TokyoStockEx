@@ -8,6 +8,7 @@ from torchmetrics import (
     MeanAbsoluteError,
     # MeanAbsolutePercentageError
     )
+import torch
 
 
 def calc_spread_return_sharpe(
@@ -55,17 +56,19 @@ def calc_spread_return_sharpe(
 
 
 def metrics(ytrue, ypred):
-    mse = MeanSquaredError()
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    mse = MeanSquaredError().to(device)
     # smape = SymmetricMeanAbsolutePercentageError()
-    r2_score = R2Score()
-    mae = MeanAbsoluteError()
+    r2_score = R2Score().to(device)
+    mae = MeanAbsoluteError().to(device)
     # wmape = MeanAbsolutePercentageError()
 
     metrics_dict = {
-        'mse': mse(ytrue, ypred).item(), 
+        'mse': mse(ytrue.to(device), ypred.to(device)).item(), 
         # 'smape': smape(ytrue, ypred),
         # 'r2_score': r2_score(ytrue, ypred).item(),
-        'mae': mae(ytrue, ypred).item(),
+        'mae': mae(ytrue.to(device), ypred.to(device)).item(),
         # 'mape': wmape(ytrue, ypred).item()
         }
 

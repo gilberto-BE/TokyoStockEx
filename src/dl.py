@@ -59,7 +59,7 @@ class PositionalEncoding(nn.Module):
         Args:
             x: Tensor, shape [seq_len, batch_size, embedding_dim]
         """
-        x += self.pe[ :x.size(0)]
+        x = x + self.pe[ :x.size(0)]
         return self.dropout(x)
 
 
@@ -82,7 +82,7 @@ class ResNN(nn.Module):
         x = self.dropout(x)
         x = F.relu(self.hidden_layer(x))
         x = self.dropout(x)
-        x += res
+        x = x + res
         return x
 
 
@@ -152,15 +152,19 @@ class NeuralNetwork(nn.Module):
             x_cat = self.embedding(x_cat)
             x_cat = self.position_enc(x_cat)
             x_cat = torch.squeeze(torch.real(torch.fft.fft2(x_cat)))
-            x_cat = F.relu(self.embedding_to_hidden(x_cat))
+            print('x.shape after fft.rfft2:', x.shape)
+            x_cat = self.embedding_to_hidden(x_cat)
+            print('x_cat after embedding to hidden:', x_cat.shape)
+            x_cat = F.relu(x_cat)
+            print('x_cat after embedding plus relu:', x_cat.shape)
             x_cat = self.dropout(x_cat)
             x_cat = F.relu(self.embedding_output(x_cat))
             x_cat = self.dropout(x_cat)
-            # x_cat += emb_residual
+            # x_cat = x_cat + emb_residual
         x = torch.real(torch.fft.rfft(x))
         cont_residual = x
         x = F.relu(self.cont_input(x))
-        x += cont_residual
+        x = x + cont_residual
         x = torch.cat((x, x_cat.view((x_cat.shape[0], -1))), dim=1)
         x = self.nn_block(x)
         x = self.nn_block(x)
@@ -174,7 +178,7 @@ class NeuralNetwork(nn.Module):
         x = F.relu(self.hidden_layer(x))
         x = self.dropout(x)
         x = F.relu(self.hidden_layer(x))
-        x += res
+        x = x + res
         x = self.dropout(x)
         return x
     
@@ -286,7 +290,7 @@ class Trainer:
             pred = self.model(x, x_cat)
         else:
             pred = self.model(x)
-        loss += self.loss_fn(pred, y)#.item()
+        loss = loss + self.loss_fn(pred, y)#.item()
         self.valid_loss.append(loss.item())
         print(f'Val-Loss: {loss.item()} [{batch}/{size}]')
         return pred, loss.item()
