@@ -1,15 +1,15 @@
 
 import torch
 import torch.nn as nn
+torch.manual_seed(0)
 
-
-import pytorch_lightning as pl
+# import pytorch_lightning as pl
 import torch
 import torch.nn.functional as F
 import torch.nn as nn
 import torch.optim as optim
 import torchmetrics as TM
-pl.utilities.seed.seed_everything(seed=42)
+# pl.utilities.seed.seed_everything(seed=42)
 from torch import nn, Tensor
 import math
 from metrics import metrics
@@ -207,12 +207,12 @@ class Trainer:
         self.test_loss = []
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         print(f"Using {self.device}-device")
+        self.model.to(self.device)
 
         if self.loss_fn_name == 'mse':
             self.loss_fn = nn.MSELoss()
 
         if self.optimizer_name.lower() == 'rmsprop': 
-            self.model.to(self.device)
             self.optimizer = torch.optim.RMSprop(self.model.parameters(), self.lr)
 
         elif self.optimizer_name.lower() == 'adam':
@@ -230,55 +230,42 @@ class Trainer:
         except:
             pass
 
-    def check_optimizer_loss_args(self):
-        print(f'Allowed opmimizer names are:')
-        print(f'Allowed loss function names are:')
-
     def fit_epochs(
-        self, train_loader, valid_loader=None, use_cyclic_lr=False, epochs=5, x_cat=None
+        self, 
+        train_loader, 
+        valid_loader=None, 
+        use_cyclic_lr=False, 
+        epochs=5, 
+        x_cat=None
         ):
         for epoch in range(epochs):
             print(f'Epoch: <<< {epoch} >>>')
-            self.fit_one_epoch(train_loader, valid_loader, use_cyclic_lr, x_cat)
+            avg_loss_train, avg_loss_val = self.fit_one_epoch(
+                train_loader, 
+                valid_loader, 
+                use_cyclic_lr, 
+                x_cat=x_cat
+                )
+            print(f'Average train loss: {avg_loss_train} | Average val loss: {avg_loss_val}')
             print('.' * 20, f'End of epoch {epoch}','.' * 20)
 
     def fit_one_epoch(
-        self, train_loader, valid_loader=None, use_cyclic_lr=False, x_cat=None
+        self, 
+        train_loader, 
+        valid_loader=None, 
+        use_cyclic_lr=False, 
+        x_cat=None
         ):
-        # train_preds = []
-        # val_preds = []
         if use_cyclic_lr:
             """add parameters for scheduler to constructor."""
             scheduler = torch.optim.lr_scheduler.CyclicLR(self.optimizer, base_lr=self.lr, max_lr=0.01)
         size = len(train_loader)
         self.model.train()
-        for batch, data in enumerate(train_loader):
-            xtrain = data['num_features']
-            if x_cat is not None:
-                xtrain_cat = data['cat_features']
-            
-            ytrain = data['target']
-            train_pred, train_loss = self._run_train_step(xtrain, ytrain, batch, size, scheduler, xtrain_cat)
-            # train_preds.append(train_pred)
-            if batch % 10 == 0:
-                print(f'Training loss: {train_loss}')
-                print(f'train metrics: <<< {metrics(ytrain, train_pred)} >>>')
-            
-            # print('train_preds:', torch.cat(train_preds, dim=0))
-
+        pred_train, avg_loss_train = self.run_train_step(train_loader, scheduler, x_cat=True)
         if valid_loader is not None:
-            size = len(valid_loader)
-            with torch.no_grad():
-                for batch_val, data_val in enumerate(valid_loader):
-                    xval = data_val['num_features']
-                    if x_cat is not None:
-                        xval_cat = data_val['cat_features']
-                    yval = data_val['target']
-                    val_pred, val_loss = self.evaluate(xval, yval, batch_val + 1, size, xval_cat)
-                    # val_preds.append(val_pred)
-                    if batch % 5 == 0:
-                        print(f'Val-loss: {val_loss.item()} [{batch}/{size}]')
-                        print('val metrics:', metrics(yval, val_pred))
+            pred_val, avg_loss_val = self.run_val_step(valid_loader, x_cat=True)
+        return avg_loss_train, avg_loss_val
+
 
     def train_loop(self, train_loader):
         """Define train-loop here"""
@@ -288,45 +275,52 @@ class Trainer:
         """Define val-loop here"""
         pass
 
-    def evaluate(self, x, y, batch, size, x_cat=None, loss_every=20):
-        loss = 0
+    def run_train_step(self, train_loader, scheduler, loss_every=20, x_cat=None):
+        running_loss = 0.0
+        last_loss = 0.0
+        for batch, data in enumerate(train_loader):
+            x = data['num_features'].to(self.device)
+            y = data['target'].to(self.device)
+            if x_cat is not None:
+                x_cat = data['cat_features'].to(self.device)
+                pred = self.model(x, x_cat).to(self.device)
+            else:
+                pred = self.model(x)
+            self.optimizer.zero_grad()
+            loss = self.loss_fn(pred, y)
+            loss.backward()
+            self.optimizer.step()
+            running_loss += loss.item()
+            if batch % loss_every == 0:
+                last_loss = running_loss/loss_every
+                print(f'Batch {batch + 1} loss: {last_loss}')
+                running_loss = 0.0
+            if scheduler:
+                scheduler.step()
+        return pred, last_loss
+
+    def run_val_step(self, valid_loader, x_cat=True):
+        running_loss = 0.0
         self.model.eval()
-        x, y = x.to(self.device), y.to(self.device)
-        if x_cat is not None:
-            x_cat = x_cat.to(self.device)
-            pred = self.model(x, x_cat)
-        else:
-            pred = self.model(x)
-        loss = loss + self.loss_fn(pred, y)#.item()
-        self.valid_loss.append(loss.item())
-        # print(f'Val-Loss: {loss.item()} [{batch}/{size}]')
-        return pred, loss.item()
-
-    def _run_train_step(self, x, y, batch, size, scheduler, x_cat=None, loss_every=20):
-        x, y = x.to(self.device), y.to(self.device)
-        if x_cat is not None:
-            x_cat = x_cat.to(self.device)
-            pred = self.model(x, x_cat)
-        else:
-            pred = self.model(x)
-        loss = self.loss_fn(pred, y)
-        self.optimizer.zero_grad()
-        loss.backward()
-        self.optimizer.step()
-        self.train_loss.append(loss.item())
-        # if batch % loss_every == 0:
-        #     print(f'Train-Loss: {loss.item()} [{batch }/{size}]')
-        if scheduler:
-            scheduler.step()
-
-        return pred, loss.item()
+        for batch, data in enumerate(valid_loader):
+            x = data['num_features'].to(self.device)
+            y = data['target'].to(self.device)
+            if x_cat is not None:
+                x_cat = data['cat_features'].to(self.device)
+                pred = self.model(x, x_cat).to(self.device)
+            else:
+                pred = self.model(x)
+            loss = self.loss_fn(pred, y)
+            running_loss += loss
+        avg_loss = running_loss/(batch + 1)
+        return pred, avg_loss
 
     def get_error_loss(self, loss_type='train'):
         """
         Get error-loss for training and validation sets.
         """
         if loss_type == 'train':
-            return self.train_loss
+            return running_loss
         else:
             if len(self.valid_loss) > 0:
                 return self.valid_loss
