@@ -7,6 +7,29 @@ import pandas as pd
 from sklearn.preprocessing import OrdinalEncoder
 
 
+def dataloader_by_stock(sec_code, batch_size=120):
+    computer_name1 = 'gilbe'
+    computer_name2 = 'Gilberto-BE'
+
+    ROOT_PATH = f'c:/Users/{computer_name1}/Documents/TokyoData'
+    train_df = pd.read_csv(f'{ROOT_PATH}/train_files/stock_prices.csv')
+    train_df['Date'] = pd.to_datetime(train_df['Date']) 
+    train_df.set_index('Date', inplace=True)
+
+    df = train_df[train_df['SecuritiesCode'] == sec_code].drop(['SecuritiesCode', 'Volume'], axis=1)
+    df = date_features(df)
+    cat_cols = ['day_of_year', 'month', 'day_of_week', 'RowId']
+    cont, cat = cont_cat_split(df, cat_cols=cat_cols)
+    df_train_cat, df_val_cat = ts_split(cat)
+    df_train, df_val = ts_split(cont)
+    xtrain, ytrain = preprocess(df_train, 'Target', 1, continous_cols=['Close'])
+    xval, yval = preprocess(df_val, 'Target', 1, continous_cols=['Close'])
+
+    train_loader = get_loader(x=xtrain, y=ytrain, batch_size=batch_size, x_cat=df_train_cat.to_numpy())
+    val_dataloader = get_loader(x=xval, y=yval, batch_size=batch_size, x_cat=df_val_cat.to_numpy())
+    return train_loader, val_dataloader
+
+
 def ts_split(raw_data, train_size=0.75, val_size=None):
 
     train_sz = int(len(raw_data) * train_size)

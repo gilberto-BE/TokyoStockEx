@@ -134,10 +134,6 @@ class NeuralNetwork(nn.Module):
             self.out_features
             )
         self.dropout = nn.Dropout(dropout)
-        # self.max_pool_1d = torch.nn.MaxPool1d(kernel_size=3)
-        # self.batch_norm = torch.nn.BatchNorm1d(self.in_features)
-        # self.layer_norm = torch.nn.LayerNorm()
-        # self.position_enc = PositionalEncoding(d_model=self.emb_dim)
 
     def forward(self, x, x_cat=None):
         """
