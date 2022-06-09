@@ -197,7 +197,7 @@ class Trainer:
 
         """
         TODO
-        1) Fix repeating code in many places.
+        1) Add early stopping
         """
 
         self.model = model
