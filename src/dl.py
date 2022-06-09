@@ -121,9 +121,9 @@ class NeuralNetwork(nn.Module):
         self.flatten = nn.Flatten()
         if no_embedding and emb_dim:
             self.embedding = nn.Embedding(self.no_embedding, self.emb_dim)
+            # self.embedding = nn.EmbeddingBag(self.no_embedding, self.emb_dim)
             self.embedding_to_hidden = nn.Linear(self.emb_dim, self.units)
-            self.embedding_output = nn.Linear(self.units, self.out_features)
-        
+            self.embedding_output = nn.Linear(self.units, self.out_features)        
         self.cont_input = nn.Linear(self.in_features, self.units)
         self.hidden_layer = nn.Linear(
             self.units + self.categorical_dim, 
@@ -156,6 +156,7 @@ class NeuralNetwork(nn.Module):
             x_cat = self.dropout(x_cat)
             x_cat = F.relu(self.embedding_output(x_cat))
             x_cat = self.dropout(x_cat)
+        
         x = torch.real(torch.fft.fft(x))
         # x = self.max_pool_1d(x)
         cont_residual = x
