@@ -163,10 +163,14 @@ class NeuralNetwork(nn.Module):
         x = x + cont_residual
         x = torch.cat((x, x_cat.view((x_cat.shape[0], -1))), dim=1)
         res = x
+        output_list = []
         for _ in range(self.n_blocks):
             x = self.nn_block(x)
+            output_list.append(self.output_layer(x))
         x = x + res
         x = self.output_layer(x)
+        for o in output_list:
+            x = x + o
         return x
 
     def nn_block(self, x):
@@ -179,6 +183,7 @@ class NeuralNetwork(nn.Module):
         x = F.relu(self.hidden_layer(x))
         x = self.dropout(x)
         return x
+
     
 
 def load_model():
@@ -233,10 +238,10 @@ class Trainer:
 
     def fit_epochs(
         self, 
-        train_loader, 
-        valid_loader=None, 
-        use_cyclic_lr=False, 
-        epochs=5, 
+        train_loader: torch.utils.data.DataLoader, 
+        valid_loader:torch.utils.data.DataLoader=None, 
+        use_cyclic_lr:bool=False, 
+        epochs:int=5, 
         x_cat=None
         ):
         for epoch in range(epochs):
@@ -251,15 +256,17 @@ class Trainer:
             print('.' * 20, f'End of epoch {epoch}','.' * 20)
             self.train_loss.append(avg_loss_train)
             self.valid_loss.append(avg_loss_val.cpu().detach().numpy())
-        plt.plot(range(epochs), self.train_loss)
-        plt.title('Train loss.')
+
+        fig, ax = plt.subplots()
+        train_loss, = ax.plot(range(epochs), self.train_loss, label='Train-loss')
+        val_loss, = ax.plot(range(epochs), self.valid_loss, label='Valid-loss')
+        # plt.legend('Valid loss.')
         plt.xlabel('Epochs')
+        ax.legend(handles=[train_loss, val_loss])
         plt.show()
 
-        plt.plot(range(epochs), self.valid_loss)
-        plt.title('Valid loss.')
-        plt.xlabel('Epochs')
-        plt.show()
+    def plot_loss(self, train_loss, val_loss):
+        pass
 
     def fit_one_epoch(
         self, 
@@ -307,7 +314,6 @@ class Trainer:
         return pred, last_loss
 
     def run_val_step(self, valid_loader, x_cat=True):
-        
         running_loss = 0.0
         self.model.eval()
         # with torch.no_grad:
