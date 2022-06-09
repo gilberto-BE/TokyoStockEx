@@ -32,10 +32,10 @@ class EmbeddingNetwork(nn.Module):
         self.out = nn.Linear(self.units, 1)
         
     def forward(self, x):
-        x = F.elu(self.embedding(x))
-        print('x.shape after F.elu(embedding(k)):', x.shape)
-        x = F.elu(self.linear(x))
-        print('x.shape after linear + elu:', x.shape)
+        x = F.relu(self.embedding(x))
+        print('x.shape after F.relu(embedding(k)):', x.shape)
+        x = F.relu(self.linear(x))
+        print('x.shape after linear + relu:', x.shape)
         x = self.out(x)
         print('x.shape after self.out(x):', x.shape)
         print()
@@ -79,9 +79,9 @@ class ResNN(nn.Module):
 
     def forward(self, x):
         res = x
-        x = F.elu(self.hidden_layer(x))
+        x = F.relu(self.hidden_layer(x))
         x = self.dropout(x)
-        x = F.elu(self.hidden_layer(x))
+        x = F.relu(self.hidden_layer(x))
         x = self.dropout(x)
         x = x + res
         return x
@@ -152,14 +152,14 @@ class NeuralNetwork(nn.Module):
             # x_cat = self.position_enc(x_cat)
             x_cat = torch.squeeze(torch.real(torch.fft.fft2(x_cat)))
             x_cat = self.embedding_to_hidden(x_cat)
-            x_cat = F.elu(x_cat)
+            x_cat = F.relu(x_cat)
             x_cat = self.dropout(x_cat)
-            x_cat = F.elu(self.embedding_output(x_cat))
+            x_cat = F.relu(self.embedding_output(x_cat))
             x_cat = self.dropout(x_cat)
         
         x = torch.real(torch.fft.fft(x))
         cont_residual = x
-        x = F.elu(self.cont_input(x))
+        x = F.relu(self.cont_input(x))
         x = x + cont_residual
         x = torch.cat((x, x_cat.view((x_cat.shape[0], -1))), dim=1)
         res = x
@@ -171,12 +171,12 @@ class NeuralNetwork(nn.Module):
 
     def nn_block(self, x):
         res = x
-        x = F.elu(self.hidden_layer(x))
+        x = F.relu(self.hidden_layer(x))
         x = self.dropout(x)
-        x = F.elu(self.hidden_layer(x))
+        x = F.relu(self.hidden_layer(x))
         x = self.dropout(x)
         x = x + res
-        x = F.elu(self.hidden_layer(x))
+        x = F.relu(self.hidden_layer(x))
         x = self.dropout(x)
         return x
     
@@ -297,7 +297,7 @@ class Trainer:
             running_loss += loss.item()
             if batch % loss_every == 0:
                 last_loss = running_loss/loss_every
-                print(f'Batch {batch + 1} loss: {last_loss}')
+                # print(f'Batch {batch + 1} loss: {last_loss}')
                 running_loss = 0.0
             if scheduler:
                 scheduler.step()
