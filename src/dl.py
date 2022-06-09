@@ -13,6 +13,7 @@ import torchmetrics as TM
 from torch import nn, Tensor
 import math
 from metrics import metrics
+import matplotlib.pyplot as plt
 
 
 class EmbeddingNetwork(nn.Module):
@@ -97,7 +98,7 @@ class NeuralNetwork(nn.Module):
         no_embedding=None, 
         emb_dim=None,
         dropout=0.1,
-        hidden_layers=3
+        n_blocks=10
         ):
 
         """
@@ -115,6 +116,7 @@ class NeuralNetwork(nn.Module):
         self.no_embedding = no_embedding
         self.emb_dim = emb_dim
         self.categorical_dim = categorical_dim
+        self.n_blocks = n_blocks
         # self.dropout = dropout
         self.flatten = nn.Flatten()
         if no_embedding and emb_dim:
@@ -131,42 +133,37 @@ class NeuralNetwork(nn.Module):
             self.units + self.categorical_dim, 
             self.out_features
             )
-        
         self.dropout = nn.Dropout(dropout)
-        self.position_enc = PositionalEncoding(d_model=self.emb_dim)
-
-        # self.res_nn = ResNN(self.units + self.categorical_dim, self.units + self.categorical_dim)
-        # self.layernorm_tot = nn.LayerNorm()
-        # self.pool_layer = nn.MaxPool1d(3, 2)
+        # self.max_pool_1d = torch.nn.MaxPool1d(kernel_size=3)
+        # self.batch_norm = torch.nn.BatchNorm1d(self.in_features)
+        # self.layer_norm = torch.nn.LayerNorm()
+        # self.position_enc = PositionalEncoding(d_model=self.emb_dim)
 
     def forward(self, x, x_cat=None):
         """
         TODO:
         * Add residual connictions.
 
-        
         """
         if x_cat is not None:
             x_cat = x_cat.to(torch.int64)
             emb_residual = x_cat
             x_cat = self.embedding(x_cat)
-            x_cat = self.position_enc(x_cat)
+            # x_cat = self.position_enc(x_cat)
             x_cat = torch.squeeze(torch.real(torch.fft.fft2(x_cat)))
             x_cat = self.embedding_to_hidden(x_cat)
             x_cat = F.relu(x_cat)
             x_cat = self.dropout(x_cat)
             x_cat = F.relu(self.embedding_output(x_cat))
             x_cat = self.dropout(x_cat)
-            # x_cat = x_cat + emb_residual
-        x = torch.real(torch.fft.rfft(x))
+        x = torch.real(torch.fft.fft(x))
+        # x = self.max_pool_1d(x)
         cont_residual = x
         x = F.relu(self.cont_input(x))
         x = x + cont_residual
         x = torch.cat((x, x_cat.view((x_cat.shape[0], -1))), dim=1)
-        x = self.nn_block(x)
-        x = self.nn_block(x)
-        x = self.nn_block(x)
-        x = self.nn_block(x)
+        for _ in range(self.n_blocks):
+            x = self.nn_block(x)
         x = self.output_layer(x)
         return x
 
@@ -175,7 +172,9 @@ class NeuralNetwork(nn.Module):
         x = F.relu(self.hidden_layer(x))
         x = self.dropout(x)
         x = F.relu(self.hidden_layer(x))
+        x = self.dropout(x)
         x = x + res
+        x = F.relu(self.hidden_layer(x))
         x = self.dropout(x)
         return x
     
@@ -240,7 +239,7 @@ class Trainer:
         ):
         for epoch in range(epochs):
             print(f'Epoch: <<< {epoch} >>>')
-            avg_loss_train, avg_loss_val = self.fit_one_epoch(
+            pred_train, avg_loss_train, pred_val, avg_loss_val = self.fit_one_epoch(
                 train_loader, 
                 valid_loader, 
                 use_cyclic_lr, 
@@ -248,6 +247,17 @@ class Trainer:
                 )
             print(f'Average train loss: {avg_loss_train} | Average val loss: {avg_loss_val}')
             print('.' * 20, f'End of epoch {epoch}','.' * 20)
+            self.train_loss.append(avg_loss_train)
+            self.valid_loss.append(avg_loss_val.cpu().detach().numpy())
+        plt.plot(range(epochs), self.train_loss)
+        plt.title('Train loss.')
+        plt.xlabel('Epochs')
+        plt.show()
+
+        plt.plot(range(epochs), self.valid_loss)
+        plt.title('Valid loss.')
+        plt.xlabel('Epochs')
+        plt.show()
 
     def fit_one_epoch(
         self, 
@@ -261,21 +271,13 @@ class Trainer:
             scheduler = torch.optim.lr_scheduler.CyclicLR(self.optimizer, base_lr=self.lr, max_lr=0.01)
         size = len(train_loader)
         self.model.train()
-        pred_train, avg_loss_train = self.run_train_step(train_loader, scheduler, x_cat=True)
+        pred_train, avg_loss_train = self.run_train_step(train_loader, scheduler, x_cat=x_cat)
+
         if valid_loader is not None:
-            pred_val, avg_loss_val = self.run_val_step(valid_loader, x_cat=True)
-        return avg_loss_train, avg_loss_val
+            pred_val, avg_loss_val = self.run_val_step(valid_loader, x_cat=x_cat)
+        return pred_train, avg_loss_train, pred_val, avg_loss_val
 
-
-    def train_loop(self, train_loader):
-        """Define train-loop here"""
-        pass
-
-    def val_loop(self, val_loader):
-        """Define val-loop here"""
-        pass
-
-    def run_train_step(self, train_loader, scheduler, loss_every=20, x_cat=None):
+    def run_train_step(self, train_loader, scheduler, loss_every=20, x_cat=True):
         running_loss = 0.0
         last_loss = 0.0
         for batch, data in enumerate(train_loader):
@@ -285,7 +287,7 @@ class Trainer:
                 x_cat = data['cat_features'].to(self.device)
                 pred = self.model(x, x_cat).to(self.device)
             else:
-                pred = self.model(x)
+                pred = self.model(x).to(self.device)
             self.optimizer.zero_grad()
             loss = self.loss_fn(pred, y)
             loss.backward()
@@ -297,11 +299,16 @@ class Trainer:
                 running_loss = 0.0
             if scheduler:
                 scheduler.step()
+
+        train_metrics = metrics(pred, y)
+        print(f'Train metrics: {train_metrics}')
         return pred, last_loss
 
     def run_val_step(self, valid_loader, x_cat=True):
+        
         running_loss = 0.0
         self.model.eval()
+        # with torch.no_grad:
         for batch, data in enumerate(valid_loader):
             x = data['num_features'].to(self.device)
             y = data['target'].to(self.device)
@@ -313,6 +320,8 @@ class Trainer:
             loss = self.loss_fn(pred, y)
             running_loss += loss
         avg_loss = running_loss/(batch + 1)
+        val_metrics = metrics(pred, y)
+        print(f'Validation metrics: {val_metrics}')
         return pred, avg_loss
 
     def get_error_loss(self, loss_type='train'):

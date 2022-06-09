@@ -79,6 +79,7 @@ def cont_cat_split(df, col_type=None, cat_cols=None):
         cat = df[cat_cols]
         if 'RowId' in cat_cols:
            enc = OrdinalEncoder()
+           # Transform to int??
            cat['RowId'] = enc.fit_transform(df['RowId'].to_numpy().reshape(-1, 1))
     elif col_type is not None:
         cat = df.select_dtypes(include=col_type)
