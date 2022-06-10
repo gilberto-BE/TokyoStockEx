@@ -87,6 +87,64 @@ class ResNN(nn.Module):
         return x
 
 
+class NeuralBlock(nn.Module):
+
+    def __init__(self, units, categorical_dim, dropout=0.1):
+        super(NeuralBlock, self).__init__()
+
+        self.in_features = units + categorical_dim
+        self.out_features = units + categorical_dim
+        self.dropout = nn.Dropout(dropout)
+        self.layer1 = nn.Linear(self.in_features, self.out_features)
+        self.layer2 = nn.Linear(self.in_features, self.out_features)
+        self.layer3 = nn.Linear(self.in_features, self.out_features)
+        self.layer4 = nn.Linear(self.in_features, self.out_features)
+        self.layer5 = nn.Linear(self.in_features, self.out_features)
+
+    def forward(self, x):
+        res = x
+        x = F.relu(self.layer1(x))
+        x = self.dropout(x)
+        x = x + res
+        x = F.relu(self.layer2(x))
+        x = self.dropout(x)
+        x = x + res
+        x = F.relu(self.layer3(x))
+        x = self.dropout(x)
+        x = x + res
+        x = F.relu(self.layer4(x))
+        x_res = F.relu(self.layer5(x - res))
+        return x_res, x
+
+
+class NeuralStack(nn.Module):
+    def __init__(
+        self, 
+        n_stacks, 
+        units, 
+        categorical_dim, 
+        output_dim=1
+        ):
+        super(NeuralStack, self).__init__()
+
+        self.stacks = nn.ModuleList([
+            NeuralBlock(units, categorical_dim) for _ in range(n_stacks)
+            ]
+            )
+        self.output_layer = nn.Linear(units + categorical_dim, output_dim) 
+
+    def forward(self, x):
+        self.outputs = []
+        for block in self.stacks:
+            x_back, pred = block(x)
+            x = x_back
+            self.outputs.append(self.output_layer(pred))
+        tot_pred = 0
+        for o in self.outputs:
+            tot_pred = tot_pred + o
+        return x_back, tot_pred
+
+
 class NeuralNetwork(nn.Module):
     
     def __init__(
@@ -98,7 +156,8 @@ class NeuralNetwork(nn.Module):
         no_embedding=None, 
         emb_dim=None,
         dropout=0.1,
-        n_blocks=10
+        n_blocks=10,
+        n_stacks=8
         ):
 
         """
@@ -108,7 +167,6 @@ class NeuralNetwork(nn.Module):
         * Test other optimizers
         * Add positional encoding
         """
-
         super(NeuralNetwork, self).__init__()
         self.in_features = in_features
         self.out_features = out_features
@@ -117,23 +175,31 @@ class NeuralNetwork(nn.Module):
         self.emb_dim = emb_dim
         self.categorical_dim = categorical_dim
         self.n_blocks = n_blocks
-        # self.dropout = dropout
-        self.flatten = nn.Flatten()
+        self.n_stacks = n_stacks
+
         if no_embedding and emb_dim:
             self.embedding = nn.Embedding(self.no_embedding, self.emb_dim)
-            # self.embedding = nn.EmbeddingBag(self.no_embedding, self.emb_dim)
             self.embedding_to_hidden = nn.Linear(self.emb_dim, self.units)
-            self.embedding_output = nn.Linear(self.units, self.out_features)        
+            self.embedding_output = nn.Linear(self.units, self.out_features)  
+              
         self.cont_input = nn.Linear(self.in_features, self.units)
+        
         self.hidden_layer = nn.Linear(
             self.units + self.categorical_dim, 
             self.units + self.categorical_dim
             )
+        
         self.output_layer = nn.Linear(
             self.units + self.categorical_dim, 
             self.out_features
             )
         self.dropout = nn.Dropout(dropout)
+        self.stacks = nn.ModuleList([
+            NeuralStack(
+                    self.n_stacks, self.units, 
+                    self.categorical_dim, 
+                    self.out_features) for _ in range(self.n_stacks)
+                    ])
 
     def forward(self, x, x_cat=None):
         """
@@ -158,35 +224,72 @@ class NeuralNetwork(nn.Module):
         x = F.relu(self.cont_input(x))
         x = x + cont_residual
         x = torch.cat((x, x_cat.view((x_cat.shape[0], -1))), dim=1)
-        res = x
-        outputs = []
-        for _ in range(self.n_blocks):
-            x = self.nn_block(x)
-            output_from_block = self.output_layer(x)
-            outputs.append(output_from_block)
-        x = x + res
-        x = self.output_layer(x)
-        for o in outputs:
-            x = x + o
-        return x
+
+        stack_outs = []
+        for n_stack in self.stacks:
+            x, pred = n_stack(x)
+            stack_outs.append(pred)
+        tot_pred = 0
+        for o in stack_outs:
+            tot_pred = tot_pred + o
+        return tot_pred
+
+        # out_stack = []
+        # for _ in range(self.n_stacks):
+        #     x, pred = self.neural_stacks(x)
+        #     out_stack.append(self.output_layer(pred))
+        # # out = self.output_layer(out)
+        # tot_pred = 0
+        # for o in out_stack:
+        #     tot_pred = tot_pred + o
+        # return tot_pred
+
+        # res = x
+        # out_block = []
+        # # for _ in range(self.n_stacks):
+        # for _ in range(self.n_blocks):
+        #     x = self.nn_block(x)
+        #     output_from_block = self.output_layer(x)
+        #     out_block.append(output_from_block)
+        # x = x + res
+        # x = self.output_layer(x)
+        # for o in out_block:
+        #     x = x + o
+        # return x
 
     def nn_block(self, x):
         res = x
         x = F.relu(self.hidden_layer(x))
         x = self.dropout(x)
+        x = x + res
         x = F.relu(self.hidden_layer(x))
         x = self.dropout(x)
         x = x + res
         x = F.relu(self.hidden_layer(x))
         x = self.dropout(x)
-        return x
+        x = x + res
+        x = F.relu(self.hidden_layer(x))
+        x_res = F.relu(self.hidden_layer(x - res))
+        return x_res, x
+    
+    def neural_stacks(self, x):
+        out_block = []
+        for _ in range(self.n_blocks):
+            x_res, pred = self.nn_block(x)
+            x = x_res
+            # output_from_block = pred
+            out_block.append(pred)
+        tot_out = 0
+        for o in out_block:
+            tot_out = tot_out + o
+        return x_res, tot_out
 
 
 class Trainer:
     def __init__(
         self, 
         model, 
-        optimizer_name='rmsprop', 
+        optimizer_name='adam', 
         lr=3e-6, 
         loss_fn_name='mse'
         ):
@@ -214,7 +317,7 @@ class Trainer:
             self.optimizer = torch.optim.RMSprop(self.model.parameters(), self.lr)
 
         elif self.optimizer_name.lower() == 'adam':
-            pass
+            self.optimizer = torch.optim.Adam(self.model.parameters(), self.lr)
 
     def _set_optimizer(self):
         try:
@@ -269,16 +372,14 @@ class Trainer:
         ):
         if use_cyclic_lr:
             """add parameters for scheduler to constructor."""
-            scheduler = torch.optim.lr_scheduler.CyclicLR(self.optimizer, base_lr=self.lr, max_lr=0.01)
-        size = len(train_loader)
         self.model.train()
-        pred_train, avg_loss_train = self.run_train_step(train_loader, scheduler, x_cat=x_cat)
+        pred_train, avg_loss_train = self.run_train_step(train_loader, x_cat=x_cat)
 
         if valid_loader is not None:
             pred_val, avg_loss_val = self.run_val_step(valid_loader, x_cat=x_cat)
         return pred_train, avg_loss_train, pred_val, avg_loss_val
 
-    def run_train_step(self, train_loader, scheduler, loss_every=20, x_cat=True):
+    def run_train_step(self, train_loader, loss_every=20, x_cat=True):
         running_loss = 0.0
         last_loss = 0.0
         for batch, data in enumerate(train_loader):
@@ -296,10 +397,7 @@ class Trainer:
             running_loss += loss.item()
             if batch % loss_every == 0:
                 last_loss = running_loss/loss_every
-                # print(f'Batch {batch + 1} loss: {last_loss}')
                 running_loss = 0.0
-            if scheduler:
-                scheduler.step()
 
         train_metrics = metrics(pred, y)
         print(f'Train metrics: {train_metrics}')
