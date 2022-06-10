@@ -5,9 +5,10 @@ from torch.utils.data import DataLoader, Dataset
 from sklearn.impute import SimpleImputer
 import pandas as pd
 from sklearn.preprocessing import OrdinalEncoder
+from sklearn.preprocessing import StandardScaler
 
 
-def dataloader_by_stock(sec_code, batch_size=120):
+def get_train_data():
     computer_name1 = 'gilbe'
     computer_name2 = 'Gilberto-BE'
 
@@ -15,15 +16,24 @@ def dataloader_by_stock(sec_code, batch_size=120):
     train_df = pd.read_csv(f'{ROOT_PATH}/train_files/stock_prices.csv')
     train_df['Date'] = pd.to_datetime(train_df['Date']) 
     train_df.set_index('Date', inplace=True)
+    return train_df
+
+def dataloader_by_stock(train_df, sec_code, batch_size=120):
+
 
     df = train_df[train_df['SecuritiesCode'] == sec_code].drop(['SecuritiesCode', 'Volume'], axis=1)
     df = date_features(df)
     cat_cols = ['day_of_year', 'month', 'day_of_week', 'RowId']
     cont, cat = cont_cat_split(df, cat_cols=cat_cols)
+    print('continuos shape:', cont.shape, '', 'categorical shape:', cat.shape)
     df_train_cat, df_val_cat = ts_split(cat)
     df_train, df_val = ts_split(cont)
     xtrain, ytrain = preprocess(df_train, 'Target', 1, continous_cols=['Close'])
     xval, yval = preprocess(df_val, 'Target', 1, continous_cols=['Close'])
+
+    scaler = StandardScaler()
+    xtrain = scaler.fit_transform(xtrain)
+    xval = scaler.transform(xval)
 
     train_loader = get_loader(x=xtrain, y=ytrain, batch_size=batch_size, x_cat=df_train_cat.to_numpy())
     val_dataloader = get_loader(x=xval, y=yval, batch_size=batch_size, x_cat=df_val_cat.to_numpy())
@@ -59,9 +69,6 @@ def show_df(
     
     
 def date_features(df, date_col=None):
-    # Check if index is datetime.
-#     if isinstance(df, pd.core.series.Series):
-#         df = pd.DataFrame(df, index=df.index)
     if date_col:
         df[date_col] = pd.to_datetime(df[date_col])
         df.set_index(date_col, inplace=True)
@@ -69,7 +76,6 @@ def date_features(df, date_col=None):
     df.loc[:, 'day_of_year'] = df.index.dayofyear
     df.loc[:, 'month'] = df.index.month
     df.loc[:, 'day_of_week'] = df.index.day
-#     df.loc[:, 'hour'] = df.index.hour
     return  df
 
 
@@ -86,10 +92,14 @@ def preprocess(
     rows = len(df)
     y = df[target_col].dropna().to_numpy().reshape(rows, target_dim)
     x = df.drop(target_col, axis=1)
-    x = x[continous_cols]
 
-    if continous_cols:
-        x[continous_cols] = x[continous_cols].pct_change()
+    x = x[continous_cols]
+    
+    for col in continous_cols:
+        x[col] = x[col] * df['AdjustmentFactor']
+
+    # if continous_cols:
+    #     x[continous_cols] = x[continous_cols].pct_change()
     x = x.select_dtypes(include=[int, float]).dropna().to_numpy()
     return x, y
 

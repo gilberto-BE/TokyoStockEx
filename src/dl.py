@@ -159,13 +159,14 @@ class NeuralNetwork(nn.Module):
         x = x + cont_residual
         x = torch.cat((x, x_cat.view((x_cat.shape[0], -1))), dim=1)
         res = x
-        output_list = []
+        outputs = []
         for _ in range(self.n_blocks):
             x = self.nn_block(x)
-            output_list.append(self.output_layer(x))
+            output_from_block = self.output_layer(x)
+            outputs.append(output_from_block)
         x = x + res
         x = self.output_layer(x)
-        for o in output_list:
+        for o in outputs:
             x = x + o
         return x
 
@@ -179,11 +180,6 @@ class NeuralNetwork(nn.Module):
         x = F.relu(self.hidden_layer(x))
         x = self.dropout(x)
         return x
-
-    
-
-def load_model():
-    pass
 
 
 class Trainer:
