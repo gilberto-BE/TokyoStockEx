@@ -131,14 +131,19 @@ class NeuralStack(nn.Module):
             NeuralBlock(units, categorical_dim) for _ in range(n_stacks)
             ]
             )
-        self.output_layer = nn.Linear(units + categorical_dim, output_dim) 
+        # Create list of outputs
+        self.output_layers = nn.ModuleList([
+            nn.Linear(units + categorical_dim, output_dim) for _ in range(n_stacks)
+            ])
 
     def forward(self, x):
         self.outputs = []
         for block in self.stacks:
             x_back, pred = block(x)
             x = x_back
-            self.outputs.append(self.output_layer(pred))
+            for o_layer in self.output_layers:
+                stack_pred = o_layer(pred)
+            self.outputs.append(stack_pred)
         tot_pred = 0
         for o in self.outputs:
             tot_pred = tot_pred + o
@@ -298,7 +303,6 @@ class Trainer:
         TODO
         1) Add early stopping
         """
-
         self.model = model
         self.lr = lr
         self.optimizer_name=optimizer_name
