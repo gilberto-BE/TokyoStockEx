@@ -108,10 +108,9 @@ def preprocess(
     Return x, y
     """
     rows = len(df)
+    df['Volume'] = df['Volume'].astype(float)
     y = df[target_col].dropna().to_numpy().reshape(rows, target_dim)
     x = df.drop(target_col, axis=1)
-    x['Volume'] = x['Volume'].astype(float)
-
     x = x[continous_cols]
     
     for col in continous_cols:
