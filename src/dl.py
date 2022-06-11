@@ -64,27 +64,12 @@ class PositionalEncoding(nn.Module):
         return self.dropout(x)
 
 
-class ResNN(nn.Module):
-    """
-    To be used as component in 
-    more complex models.
-    """
-    def __init__(self, in_features, units, dropout=0.1):
-        super(ResNN, self).__init__()
-        self.in_features = in_features
-        # self.out_features = out_features
-        self.units = units
-        self.dropout = nn.Dropout(dropout)
-        self.hidden_layer = nn.Linear(self.in_features, self.units)
+class GatedLinearUnit(nn.Module):
+    def __init__(self):
+        super(GatedLinearUnit, self).__init__()
 
     def forward(self, x):
-        res = x
-        x = F.relu(self.hidden_layer(x))
-        x = self.dropout(x)
-        x = F.relu(self.hidden_layer(x))
-        x = self.dropout(x)
-        x = x + res
-        return x
+        pass
 
 
 class NeuralBlock(nn.Module):
@@ -99,21 +84,24 @@ class NeuralBlock(nn.Module):
         self.layer2 = nn.Linear(self.in_features, self.out_features)
         self.layer3 = nn.Linear(self.in_features, self.out_features)
         self.layer4 = nn.Linear(self.in_features, self.out_features)
-        self.layer5 = nn.Linear(self.in_features, self.out_features)
+        self.output = nn.Linear(self.in_features, self.out_features)
+        self.res_output = nn.Linear(self.in_features, self.out_features)
 
     def forward(self, x):
         res = x
         x = F.relu(self.layer1(x))
         x = self.dropout(x)
-        x = x + res
+        # x = x + res
         x = F.relu(self.layer2(x))
         x = self.dropout(x)
         x = x + res
         x = F.relu(self.layer3(x))
         x = self.dropout(x)
-        x = x + res
+        # x = x + res
         x = F.relu(self.layer4(x))
-        x_res = F.relu(self.layer5(x - res))
+        x = self.output(x)
+        x = x + res
+        x_res = self.res_output(x - res)
         return x_res, x
 
 
@@ -224,11 +212,10 @@ class NeuralNetwork(nn.Module):
             x_cat = self.dropout(x_cat)
             x_cat = F.relu(self.embedding_output(x_cat))
             x_cat = self.dropout(x_cat)
-        
+        # cont_residual = x
         x = torch.real(torch.fft.fft(x))
-        cont_residual = x
         x = F.relu(self.cont_input(x))
-        x = x + cont_residual
+        # x = x + cont_residual.view(x.shape)
         x = torch.cat((x, x_cat.view((x_cat.shape[0], -1))), dim=1)
 
         stack_outs = []
