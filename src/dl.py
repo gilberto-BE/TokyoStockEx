@@ -120,7 +120,7 @@ class NeuralBlock(nn.Module):
 class NeuralStack(nn.Module):
     def __init__(
         self, 
-        n_stacks, 
+        n_blocks, 
         units, 
         categorical_dim, 
         output_dim=1
@@ -128,12 +128,12 @@ class NeuralStack(nn.Module):
         super(NeuralStack, self).__init__()
 
         self.stacks = nn.ModuleList([
-            NeuralBlock(units, categorical_dim) for _ in range(n_stacks)
+            NeuralBlock(units, categorical_dim) for _ in range(n_blocks)
             ]
             )
         # Create list of outputs
         self.output_layers = nn.ModuleList([
-            nn.Linear(units + categorical_dim, output_dim) for _ in range(n_stacks)
+            nn.Linear(units + categorical_dim, output_dim) for _ in range(n_blocks)
             ])
 
     def forward(self, x):
@@ -201,7 +201,8 @@ class NeuralNetwork(nn.Module):
         self.dropout = nn.Dropout(dropout)
         self.stacks = nn.ModuleList([
             NeuralStack(
-                    self.n_stacks, self.units, 
+                    self.n_blocks, 
+                    self.units, 
                     self.categorical_dim, 
                     self.out_features) for _ in range(self.n_stacks)
                     ])
