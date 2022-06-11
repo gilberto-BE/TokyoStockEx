@@ -295,9 +295,9 @@ class Trainer:
         self.lr = lr
         self.optimizer_name=optimizer_name
         self.loss_fn_name = loss_fn_name
-        self.train_loss = []
-        self.valid_loss = []
-        self.test_loss = []
+        # self.train_loss = []
+        # self.valid_loss = []
+        # self.test_loss = []
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         print(f"Using {self.device}-device")
         self.model.to(self.device)
@@ -331,6 +331,8 @@ class Trainer:
         epochs:int=5, 
         x_cat=None
         ):
+        train_loss = []
+        valid_loss = []
         for epoch in range(epochs):
             print(f'Epoch: <<< {epoch} >>>')
             pred_train, avg_loss_train, pred_val, avg_loss_val = self.fit_one_epoch(
@@ -341,15 +343,15 @@ class Trainer:
                 )
             print(f'Average train loss: {avg_loss_train} | Average val loss: {avg_loss_val}')
             print('.' * 20, f'End of epoch {epoch}','.' * 20)
-            self.train_loss.append(avg_loss_train)
-            self.valid_loss.append(avg_loss_val.cpu().detach().numpy())
+            train_loss.append(avg_loss_train)
+            valid_loss.append(avg_loss_val.cpu().detach().numpy())
 
         fig, ax = plt.subplots()
-        train_loss, = ax.plot(range(epochs), self.train_loss, label='Train-loss')
-        val_loss, = ax.plot(range(epochs), self.valid_loss, label='Valid-loss')
+        training_loss, = ax.plot(range(epochs), train_loss, label='Train-loss')
+        val_loss, = ax.plot(range(epochs), valid_loss, label='Valid-loss')
         # plt.legend('Valid loss.')
         plt.xlabel('Epochs')
-        ax.legend(handles=[train_loss, val_loss])
+        ax.legend(handles=[training_loss, val_loss])
         plt.show()
 
     def plot_loss(self, train_loss, val_loss):
