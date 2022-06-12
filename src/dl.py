@@ -14,6 +14,7 @@ from torch import nn, Tensor
 import math
 from metrics import metrics
 import matplotlib.pyplot as plt
+import numpy as np
 
 
 class EmbeddingNetwork(nn.Module):
@@ -27,13 +28,13 @@ class EmbeddingNetwork(nn.Module):
         self.units=units
         self.no_embedding = no_embedding
         self.emb_dim = emb_dim
-        self.embedding = nn.Embedding(self.no_embedding, self.emb_dim)
+        self.embedding_layer = nn.Embedding(self.no_embedding, self.emb_dim)
         self.linear = nn.Linear(self.emb_dim, self.units)
         self.out = nn.Linear(self.units, 1)
         
     def forward(self, x):
-        x = F.relu(self.embedding(x))
-        print('x.shape after F.relu(embedding(k)):', x.shape)
+        x = F.relu(self.embedding_layer(x))
+        print('x.shape after F.relu(embedding_layer(k)):', x.shape)
         x = F.relu(self.linear(x))
         print('x.shape after linear + relu:', x.shape)
         x = self.out(x)
@@ -65,11 +66,44 @@ class PositionalEncoding(nn.Module):
 
 
 class GatedLinearUnit(nn.Module):
-    def __init__(self):
+    """
+    Need to check all dimensions
+    """
+    def __init__(self, units=10):
         super(GatedLinearUnit, self).__init__()
+        self.units = units
+        self.layer = nn.Linear(self.units, self.units)
+        self.output = nn.Linear(self.units, self.units)
 
     def forward(self, x):
-        pass
+        return self.layer(x) @ F.sigmoid(self.output(x))
+
+
+class GatedResidualNetwork(nn.Module):
+    """
+    Need to check all dimensions
+    """
+    def __init__(self, in_features, out_features, dropout=0.1, units=50):
+        super(GatedResidualNetwork, self).__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        self.units = units
+        self.layer1 = nn.Linear(self.in_features, self.units)
+        self.layer2 = nn.Linear(self.in_features, self.out_features)
+        self.dropout = nn.Dropout(dropout)
+        self.gated_linear_unit = GatedLinearUnit(self.in_features)
+        self.layer_norm = nn.LayerNorm(self.in_features)
+        self.layer2 = nn.Linear(self.units, self.units)
+
+    def forward(self, inputs):
+        x = F.elu(self.layer1(x))
+        x = self.layer2(x)
+        x = self.dropout(x)
+        if inputs.shape[-1] != self.units:
+            inputs = self.layer2(inputs)
+        x = inputs + self.gated_linear_unit(x)
+        x = self.layer_norm(x)
+        return x
 
 
 class NeuralBlock(nn.Module):
@@ -91,13 +125,11 @@ class NeuralBlock(nn.Module):
         res = x
         x = F.relu(self.layer1(x))
         x = self.dropout(x)
-        # x = x + res
         x = F.relu(self.layer2(x))
         x = self.dropout(x)
         x = x + res
         x = F.relu(self.layer3(x))
         x = self.dropout(x)
-        # x = x + res
         x = F.relu(self.layer4(x))
         x = self.output(x)
         x = x + res
@@ -115,13 +147,13 @@ class NeuralStack(nn.Module):
         ):
         super(NeuralStack, self).__init__()
 
-        self.stacks = nn.ModuleList([
-            NeuralBlock(units, categorical_dim) for _ in range(n_blocks)
-            ]
-            )
-        # Create list of outputs
-        self.output_layers = nn.ModuleList([
-            nn.Linear(units + categorical_dim, output_dim) for _ in range(n_blocks)
+        self.stacks = nn.ModuleList(
+            [
+                NeuralBlock(units, categorical_dim) for _ in range(n_blocks)
+            ])
+        self.output_layers = nn.ModuleList(
+            [
+                nn.Linear(units + categorical_dim, output_dim) for _ in range(n_blocks)
             ])
 
     def forward(self, x):
@@ -171,16 +203,16 @@ class NeuralNetwork(nn.Module):
         self.n_stacks = n_stacks
 
         if no_embedding and emb_dim:
-            self.embedding = nn.Embedding(self.no_embedding, self.emb_dim)
+            self.embedding_layer = nn.Embedding(self.no_embedding, self.emb_dim)
             self.embedding_to_hidden = nn.Linear(self.emb_dim, self.units)
             self.embedding_output = nn.Linear(self.units, self.out_features)  
               
         self.cont_input = nn.Linear(self.in_features, self.units)
         
-        self.hidden_layer = nn.Linear(
-            self.units + self.categorical_dim, 
-            self.units + self.categorical_dim
-            )
+        # self.hidden_layer = nn.Linear(
+        #     self.units + self.categorical_dim, 
+        #     self.units + self.categorical_dim
+        #     )
         
         self.output_layer = nn.Linear(
             self.units + self.categorical_dim, 
@@ -199,23 +231,19 @@ class NeuralNetwork(nn.Module):
         """
         TODO:
         * Add residual connictions.
-
         """
         if x_cat is not None:
             x_cat = x_cat.to(torch.int64)
             emb_residual = x_cat
-            x_cat = self.embedding(x_cat)
-            # x_cat = self.position_enc(x_cat)
+            x_cat = self.embedding_layer(x_cat)
             x_cat = torch.squeeze(torch.real(torch.fft.fft2(x_cat)))
-            x_cat = self.embedding_to_hidden(x_cat)
-            x_cat = F.relu(x_cat)
+            x_cat = F.relu(self.embedding_to_hidden(x_cat))
             x_cat = self.dropout(x_cat)
             x_cat = F.relu(self.embedding_output(x_cat))
             x_cat = self.dropout(x_cat)
         # cont_residual = x
         x = torch.real(torch.fft.fft(x))
         x = F.relu(self.cont_input(x))
-        # x = x + cont_residual.view(x.shape)
         x = torch.cat((x, x_cat.view((x_cat.shape[0], -1))), dim=1)
 
         stack_outs = []
@@ -250,41 +278,41 @@ class NeuralNetwork(nn.Module):
         #     x = x + o
         # return x
 
-    def nn_block(self, x):
-        res = x
-        x = F.relu(self.hidden_layer(x))
-        x = self.dropout(x)
-        x = x + res
-        x = F.relu(self.hidden_layer(x))
-        x = self.dropout(x)
-        x = x + res
-        x = F.relu(self.hidden_layer(x))
-        x = self.dropout(x)
-        x = x + res
-        x = F.relu(self.hidden_layer(x))
-        x_res = F.relu(self.hidden_layer(x - res))
-        return x_res, x
+    # def nn_block(self, x):
+    #     res = x
+    #     x = F.relu(self.hidden_layer(x))
+    #     x = self.dropout(x)
+    #     x = x + res
+    #     x = F.relu(self.hidden_layer(x))
+    #     x = self.dropout(x)
+    #     x = x + res
+    #     x = F.relu(self.hidden_layer(x))
+    #     x = self.dropout(x)
+    #     x = x + res
+    #     x = F.relu(self.hidden_layer(x))
+    #     x_res = F.relu(self.hidden_layer(x - res))
+    #     return x_res, x
     
-    def neural_stacks(self, x):
-        out_block = []
-        for _ in range(self.n_blocks):
-            x_res, pred = self.nn_block(x)
-            x = x_res
-            # output_from_block = pred
-            out_block.append(pred)
-        tot_out = 0
-        for o in out_block:
-            tot_out = tot_out + o
-        return x_res, tot_out
+    # def neural_stacks(self, x):
+    #     out_block = []
+    #     for _ in range(self.n_blocks):
+    #         x_res, pred = self.nn_block(x)
+    #         x = x_res
+    #         # output_from_block = pred
+    #         out_block.append(pred)
+    #     tot_out = 0
+    #     for o in out_block:
+    #         tot_out = tot_out + o
+    #     return x_res, tot_out
 
 
 class Trainer:
     def __init__(
         self, 
-        model, 
-        optimizer_name='adam', 
-        lr=3e-6, 
-        loss_fn_name='mse'
+        model:nn.Module, 
+        optimizer_name:str='adam', 
+        lr:float=3e-6, 
+        loss_fn_name:str='mse'
         ):
 
         """
@@ -301,15 +329,23 @@ class Trainer:
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         print(f"Using {self.device}-device")
         self.model.to(self.device)
+        self.weight_decay = 0.1
 
         if self.loss_fn_name == 'mse':
             self.loss_fn = nn.MSELoss()
 
         if self.optimizer_name.lower() == 'rmsprop': 
-            self.optimizer = torch.optim.RMSprop(self.model.parameters(), self.lr)
+            self.optimizer = torch.optim.RMSprop(
+                self.model.parameters(), 
+                self.lr, weight_decay=self.weight_decay
+                )
 
         elif self.optimizer_name.lower() == 'adam':
-            self.optimizer = torch.optim.Adam(self.model.parameters(), self.lr)
+            self.optimizer = torch.optim.Adam(
+                self.model.parameters(), 
+                self.lr, 
+                weight_decay=self.weight_decay
+                )
 
     def _set_optimizer(self):
         try:
@@ -333,25 +369,42 @@ class Trainer:
         ):
         train_loss = []
         valid_loss = []
+        train_mae = []
+        valid_mae = []
         for epoch in range(epochs):
             print(f'Epoch: <<< {epoch} >>>')
-            pred_train, avg_loss_train, pred_val, avg_loss_val = self.fit_one_epoch(
+            result = self.fit_one_epoch(
                 train_loader, 
                 valid_loader, 
                 use_cyclic_lr, 
                 x_cat=x_cat
                 )
-            print(f'Average train loss: {avg_loss_train} | Average val loss: {avg_loss_val}')
+            # pred_train, avg_loss_train, pred_val, avg_loss_val = self.fit_one_epoch(
+            #     train_loader, 
+            #     valid_loader, 
+            #     use_cyclic_lr, 
+            #     x_cat=x_cat
+            #     )
+            print(
+                f'Average train loss: {result["avg_loss_train"]} | Average val loss: {result["avg_loss_val"]}')
             print('.' * 20, f'End of epoch {epoch}','.' * 20)
-            train_loss.append(avg_loss_train)
-            valid_loss.append(avg_loss_val.cpu().detach().numpy())
+            train_loss.append(result["avg_loss_train"])
+            valid_loss.append(result["avg_loss_val"].cpu().detach().numpy())
+            train_mae.append(result["train_mae"])
+            valid_mae.append(result["val_mae"])
 
         fig, ax = plt.subplots()
         training_loss, = ax.plot(range(epochs), train_loss, label='Train-loss')
         val_loss, = ax.plot(range(epochs), valid_loss, label='Valid-loss')
-        # plt.legend('Valid loss.')
         plt.xlabel('Epochs')
         ax.legend(handles=[training_loss, val_loss])
+        plt.show()
+
+        fig, ax = plt.subplots()
+        training_mae, = ax.plot(range(epochs), train_mae, label='Train-MAE')
+        val_mae, = ax.plot(range(epochs), valid_mae, label='Valid-MAE')
+        plt.xlabel('Epochs')
+        ax.legend(handles=[training_mae, val_mae])
         plt.show()
 
     def plot_loss(self, train_loss, val_loss):
@@ -359,19 +412,29 @@ class Trainer:
 
     def fit_one_epoch(
         self, 
-        train_loader, 
-        valid_loader=None, 
-        use_cyclic_lr=False, 
-        x_cat=None
+        train_loader: torch.utils.data.DataLoader, 
+        valid_loader:torch.utils.data.DataLoader=None, 
+        use_cyclic_lr:bool=False, 
+        x_cat:bool=None
         ):
         if use_cyclic_lr:
             """add parameters for scheduler to constructor."""
         self.model.train()
-        pred_train, avg_loss_train = self.run_train_step(train_loader, x_cat=x_cat)
+        pred_train, avg_loss_train, train_metrics = self.run_train_step(train_loader, x_cat=x_cat)
 
         if valid_loader is not None:
-            pred_val, avg_loss_val = self.run_val_step(valid_loader, x_cat=x_cat)
-        return pred_train, avg_loss_train, pred_val, avg_loss_val
+            pred_val, avg_loss_val, val_metrics = self.run_val_step(valid_loader, x_cat=x_cat)
+
+        result = {
+            'pred_train': pred_train, 
+            'avg_loss_train': avg_loss_train, 
+            'pred_val': pred_val, 
+            'avg_loss_val': avg_loss_val,
+            'train_mae': train_metrics['mae'],
+            'val_mae': val_metrics['mae']
+            }
+
+        return result
 
     def run_train_step(self, train_loader, loss_every=20, x_cat=True):
         running_loss = 0.0
@@ -395,7 +458,7 @@ class Trainer:
 
         train_metrics = metrics(pred, y)
         print(f'Train metrics: {train_metrics}')
-        return pred, last_loss
+        return pred, last_loss, train_metrics
 
     def run_val_step(self, valid_loader, x_cat=True):
         running_loss = 0.0
@@ -414,7 +477,7 @@ class Trainer:
         avg_loss = running_loss/(batch + 1)
         val_metrics = metrics(pred, y)
         print(f'Validation metrics: {val_metrics}')
-        return pred, avg_loss
+        return pred, avg_loss, val_metrics
 
     def get_error_loss(self, loss_type='train'):
         """
@@ -430,3 +493,12 @@ class Trainer:
         pass
 
     
+if __name__  == '__main__':
+    # Test new networks
+    tgt = torch.tensor(np.array(range(10)) * 0.01)
+    feat = torch.tensor(np.array(range(100)).reshape(10, 10))
+    print(feat.shape)
+    print(feat)
+    print(tgt.shape)
+    print(tgt)
+
