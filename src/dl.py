@@ -119,10 +119,13 @@ class NeuralBlock(nn.Module):
         self.layer3 = nn.Linear(self.in_features, self.out_features)
         self.layer4 = nn.Linear(self.in_features, self.out_features)
         self.output = nn.Linear(self.in_features, self.out_features)
+        self.res_layer = nn.Linear(self.in_features, self.in_features)
+        self.fwr_layer = nn.Linear(self.in_features, self.in_features)
         self.res_output = nn.Linear(self.in_features, self.out_features)
 
     def forward(self, x):
         res = x
+        x = torch.real(torch.fft.fft(x))
         x = F.relu(self.layer1(x))
         x = self.dropout(x)
         x = F.relu(self.layer2(x))
@@ -131,9 +134,13 @@ class NeuralBlock(nn.Module):
         x = F.relu(self.layer3(x))
         x = self.dropout(x)
         x = F.relu(self.layer4(x))
+
+        x = F.relu(self.fwr_layer(x))
         x = self.output(x)
         x = x + res
-        x_res = self.res_output(x - res)
+        x_res = x - res
+        x_res = F.relu(self.res_layer(x_res))
+        x_res = self.res_output(x_res)
         return x_res, x
 
 
@@ -255,56 +262,6 @@ class NeuralNetwork(nn.Module):
             tot_pred = tot_pred + o
         return tot_pred
 
-        # out_stack = []
-        # for _ in range(self.n_stacks):
-        #     x, pred = self.neural_stacks(x)
-        #     out_stack.append(self.output_layer(pred))
-        # # out = self.output_layer(out)
-        # tot_pred = 0
-        # for o in out_stack:
-        #     tot_pred = tot_pred + o
-        # return tot_pred
-
-        # res = x
-        # out_block = []
-        # # for _ in range(self.n_stacks):
-        # for _ in range(self.n_blocks):
-        #     x = self.nn_block(x)
-        #     output_from_block = self.output_layer(x)
-        #     out_block.append(output_from_block)
-        # x = x + res
-        # x = self.output_layer(x)
-        # for o in out_block:
-        #     x = x + o
-        # return x
-
-    # def nn_block(self, x):
-    #     res = x
-    #     x = F.relu(self.hidden_layer(x))
-    #     x = self.dropout(x)
-    #     x = x + res
-    #     x = F.relu(self.hidden_layer(x))
-    #     x = self.dropout(x)
-    #     x = x + res
-    #     x = F.relu(self.hidden_layer(x))
-    #     x = self.dropout(x)
-    #     x = x + res
-    #     x = F.relu(self.hidden_layer(x))
-    #     x_res = F.relu(self.hidden_layer(x - res))
-    #     return x_res, x
-    
-    # def neural_stacks(self, x):
-    #     out_block = []
-    #     for _ in range(self.n_blocks):
-    #         x_res, pred = self.nn_block(x)
-    #         x = x_res
-    #         # output_from_block = pred
-    #         out_block.append(pred)
-    #     tot_out = 0
-    #     for o in out_block:
-    #         tot_out = tot_out + o
-    #     return x_res, tot_out
-
 
 class Trainer:
     def __init__(
@@ -323,9 +280,6 @@ class Trainer:
         self.lr = lr
         self.optimizer_name=optimizer_name
         self.loss_fn_name = loss_fn_name
-        # self.train_loss = []
-        # self.valid_loss = []
-        # self.test_loss = []
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         print(f"Using {self.device}-device")
         self.model.to(self.device)
@@ -347,18 +301,6 @@ class Trainer:
                 weight_decay=self.weight_decay
                 )
 
-    def _set_optimizer(self):
-        try:
-            pass
-        except:
-            pass
-
-    def _set_loss(self):
-        try:
-            pass
-        except:
-            pass
-
     def fit_epochs(
         self, 
         train_loader: torch.utils.data.DataLoader, 
@@ -372,22 +314,27 @@ class Trainer:
         train_mae = []
         valid_mae = []
         for epoch in range(epochs):
-            print(f'Epoch: <<< {epoch} >>>')
+            # print(f'Epoch: <<< {epoch} >>>')
             result = self.fit_one_epoch(
                 train_loader, 
                 valid_loader, 
                 use_cyclic_lr, 
                 x_cat=x_cat
                 )
-            # pred_train, avg_loss_train, pred_val, avg_loss_val = self.fit_one_epoch(
-            #     train_loader, 
-            #     valid_loader, 
-            #     use_cyclic_lr, 
-            #     x_cat=x_cat
-            #     )
-            print(
-                f'Average train loss: {result["avg_loss_train"]} | Average val loss: {result["avg_loss_val"]}')
-            print('.' * 20, f'End of epoch {epoch}','.' * 20)
+
+            if epoch % 2  == 0:
+                print(f'Epoch: <<< {epoch} >>>')
+                print(
+                    f"""
+                    Average train loss: {result["avg_loss_train"]} | 
+                    Train-Mae: {result["train_mae"]} |
+
+                    Average val loss: {result["avg_loss_val"]}|
+                    Val-Mae: {result["val_mae"]}
+                    """
+                    )
+                print('.' * 20, f'End of epoch {epoch}','.' * 20)
+
             train_loss.append(result["avg_loss_train"])
             valid_loss.append(result["avg_loss_val"].cpu().detach().numpy())
             train_mae.append(result["train_mae"])
@@ -457,7 +404,7 @@ class Trainer:
                 running_loss = 0.0
 
         train_metrics = metrics(pred, y)
-        print(f'Train metrics: {train_metrics}')
+        # print(f'Train metrics: {train_metrics}')
         return pred, last_loss, train_metrics
 
     def run_val_step(self, valid_loader, x_cat=True):
@@ -476,23 +423,17 @@ class Trainer:
             running_loss += loss
         avg_loss = running_loss/(batch + 1)
         val_metrics = metrics(pred, y)
-        print(f'Validation metrics: {val_metrics}')
+        # print(f'Validation metrics: {val_metrics}')
         return pred, avg_loss, val_metrics
 
-    def get_error_loss(self, loss_type='train'):
-        """
-        Get error-loss for training and validation sets.
-        """
-        if loss_type == 'train':
-            return running_loss
-        else:
-            if len(self.valid_loss) > 0:
-                return self.valid_loss
+    def save_model(self, model, path='./trained_model.pt'):
+        torch.save(model, path)
 
-    def save_model(self):
-        pass
+    def load_model(self, path='./notebooks/trained_model.pt'):
+        model = torch.load(path)
+        return model.eval()
 
-    
+
 if __name__  == '__main__':
     # Test new networks
     tgt = torch.tensor(np.array(range(10)) * 0.01)
