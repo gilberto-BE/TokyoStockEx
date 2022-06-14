@@ -216,7 +216,7 @@ class NeuralNetwork(nn.Module):
         self.cont_input = nn.Linear(self.in_features, self.units)
         
         self.dropout = nn.Dropout(dropout)
-        self.pooling_layer = nn.MaxPool1d(kernel_size=self.pooling_sizes, stride=self.pooling_sizes, ceil_mode=True)
+        # self.pooling_layer = nn.MaxPool1d(kernel_size=self.pooling_sizes, stride=self.pooling_sizes, ceil_mode=True)
 
         self.stacks = nn.ModuleList([
             NeuralStack(
