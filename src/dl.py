@@ -864,7 +864,7 @@ class Trainer:
         # print(f'Validation metrics: {val_metrics}')
         return pred, avg_loss, val_metrics
 
-    def save_model(self, model, path='./trained_model.pt'):
+    def save_model(self, model, path='./models/trained_model.pt'):
         torch.save(model, path)
 
     def load_model(self, path='./notebooks/trained_model.pt'):
