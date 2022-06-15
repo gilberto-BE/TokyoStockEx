@@ -213,10 +213,11 @@ class NeuralNetwork(nn.Module):
             self.embedding_to_hidden = nn.Linear(self.emb_dim, self.units)
             self.embedding_output = nn.Linear(self.units, self.out_features)  
               
-        self.cont_input = nn.Linear(self.in_features, self.units)
+        self.cont_input = nn.Linear(self.in_features - 3, self.units)
         
         self.dropout = nn.Dropout(dropout)
-        # self.pooling_layer = nn.MaxPool1d(kernel_size=self.pooling_sizes, stride=self.pooling_sizes, ceil_mode=True)
+        self.pooling_layer = nn.MaxPool1d(kernel_size=self.pooling_sizes, stride=self.pooling_sizes, ceil_mode=True)
+        # self.pooling_cat = nn.MaxPool1d(kernel_size=self.pooling_sizes, stride=self.pooling_sizes, ceil_mode=True)
 
         self.stacks = nn.ModuleList([
             NeuralStack(
@@ -242,8 +243,9 @@ class NeuralNetwork(nn.Module):
             x_cat = self.dropout(x_cat)
         # cont_residual = x
         x = torch.real(torch.fft.fft2(x))
+        # print('in_features:', self.in_features)
         # print('x.shape after fft:', x.shape)
-        # x = self.pooling_layer(x)
+        x = self.pooling_layer(x)
         # print('x.shape from pooling:', x.shape)
 
         x = F.relu(self.cont_input(x))
