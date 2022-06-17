@@ -8,12 +8,12 @@ from sklearn.preprocessing import OrdinalEncoder
 from sklearn.preprocessing import StandardScaler
 
 
-def get_train_data():
+def get_data(folder='train_files'):
     computer_name1 = 'gilbe'
     computer_name2 = 'Gilberto-BE'
 
     ROOT_PATH = f'c:/Users/{computer_name1}/Documents/TokyoData'
-    train_df = pd.read_csv(f'{ROOT_PATH}/train_files/stock_prices.csv')
+    train_df = pd.read_csv(f'{ROOT_PATH}/{folder}/stock_prices.csv')
     train_df['Date'] = pd.to_datetime(train_df['Date']) 
     train_df.set_index('Date', inplace=True)
     return train_df
@@ -34,7 +34,12 @@ class TextTransform:
         return [self.idx2w[i] for i in self.idx]
 
 
-def dataloader_by_stock(train_df, sec_code, batch_size=32,  continous_cols=['Close']):
+def dataloader_by_stock(
+    train_df, 
+    sec_code, 
+    batch_size=32,  
+    continous_cols=['Close']
+    ):
     df = train_df[train_df['SecuritiesCode'] == sec_code].drop(['SecuritiesCode'], axis=1)
     df = date_features(df)
     
@@ -56,6 +61,34 @@ def dataloader_by_stock(train_df, sec_code, batch_size=32,  continous_cols=['Clo
     train_loader = get_loader(x=xtrain, y=ytrain, batch_size=batch_size, x_cat=df_train_cat.to_numpy())
     val_dataloader = get_loader(x=xval, y=yval, batch_size=batch_size, x_cat=df_val_cat.to_numpy())
     return train_loader, val_dataloader
+
+
+def dataloader_test_by_stock(
+    train_df, 
+    sec_code, 
+    transformer=None, 
+    batch_size=32,  
+    continous_cols=['Close']
+    ):
+    df = train_df[train_df['SecuritiesCode'] == sec_code].drop(['SecuritiesCode'], axis=1)
+    df = date_features(df)
+
+    df['Target'] = df['Close'].shift().pct_change()
+    print(df.head())
+    
+    cat_cols = ['day_of_year', 'month', 'day_of_week', 'RowId']
+    cont, cat = cont_cat_split(df, cat_cols=cat_cols)
+    
+    print('continuos shape:', cont.shape, '', 'categorical shape:', cat.shape)
+    xtest, ytest = preprocess(cont, 'Target', 1, continous_cols=continous_cols)
+
+    if transformer is not None:
+        xtest = transformer(xtest)
+    else:
+        print('Notice that the transformer is None.')
+
+    test_dataloader = get_predict_loader(x=xtest, batch_size=batch_size, x_cat=cat.to_numpy())
+    return test_dataloader
 
 
 def ts_split(raw_data, train_size=0.75, val_size=None):
@@ -178,6 +211,40 @@ def get_loader(x, y, batch_size, x_cat=None):
     if x_cat is not None:
         return DataLoader(ToTorch(x, y, x_cat), batch_size=batch_size)
     return DataLoader(ToTorch(x, y), batch_size=batch_size)
+
+
+class ToTorchPredict(Dataset):
+
+    def __init__(
+            self,
+            num_features,
+            cat_features=None
+            ):
+        self.num_features = num_features
+        self.cat_features = cat_features
+
+    def __len__(self):
+        return len(self.num_features)
+
+    def __getitem__(self, idx):
+        num_features = self.num_features[idx]
+        target = self.target[idx]
+        cat_features = self.cat_features[idx]
+
+        if self.cat_features is not None:
+            return {
+                'num_features': torch.from_numpy(np.array(num_features)).float(), 
+                'cat_features': torch.from_numpy(np.array(cat_features)).int()
+                }
+
+        return {
+            'num_features': torch.from_numpy(np.array(num_features)).float(), 
+            }
+
+def get_predict_loader(x, batch_size, x_cat=None):
+    if x_cat is not None:
+        return DataLoader(ToTorchPredict(x, x_cat), batch_size=batch_size)
+    return DataLoader(ToTorchPredict(x), batch_size=batch_size)
 
 
 if __name__ == '__main__':

@@ -135,8 +135,10 @@ class NeuralBlock(nn.Module):
         x = self.dropout(x)
         x = F.relu(self.layer4(x))
         x = F.relu(self.fwr_layer(x))
+        x = torch.real(torch.fft.ifft2(x))
         x = self.output(x)
         x_res = res - x
+        x_res = torch.real(torch.fft.ifft2(x_res))
         x_res = F.relu(self.res_layer(x_res))
         x_res = self.res_output(x_res)
         return x_res, x
@@ -213,7 +215,7 @@ class NeuralNetwork(nn.Module):
             self.embedding_to_hidden = nn.Linear(self.emb_dim, self.units)
             self.embedding_output = nn.Linear(self.units, self.out_features)  
               
-        self.cont_input = nn.Linear(self.in_features - 3, self.units)
+        self.cont_input = nn.Linear(self.in_features - 2, self.units)
         
         self.dropout = nn.Dropout(dropout)
         self.pooling_layer = nn.MaxPool1d(kernel_size=self.pooling_sizes, stride=self.pooling_sizes, ceil_mode=True)
@@ -243,11 +245,7 @@ class NeuralNetwork(nn.Module):
             x_cat = self.dropout(x_cat)
         # cont_residual = x
         x = torch.real(torch.fft.fft2(x))
-        # print('in_features:', self.in_features)
-        # print('x.shape after fft:', x.shape)
         x = self.pooling_layer(x)
-        # print('x.shape from pooling:', x.shape)
-
         x = F.relu(self.cont_input(x))
         x = torch.cat((x, x_cat.view((x_cat.shape[0], -1))), dim=1)
 
@@ -310,9 +308,18 @@ class Trainer:
         train_mae = []
         valid_mae = []
         best_valid_loss = 1_000_000
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            self.optimizer, 
+            'min',
+            factor=0.5, 
+            patience=5, 
+            threshold=1e-3, 
+            verbose=True
+            )
         for epoch in range(epochs):
             result = self.fit_one_epoch(train_loader, valid_loader, use_cyclic_lr, x_cat=x_cat)
-            if epoch % 5  == 0:
+            scheduler.step(result['avg_loss_val'])
+            if epoch % 10  == 0:
                 print(f'Epoch: <<< {epoch} >>>')
                 print(
                     f"""
