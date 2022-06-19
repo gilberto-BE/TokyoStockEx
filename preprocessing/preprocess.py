@@ -38,7 +38,8 @@ def dataloader_by_stock(
     train_df, 
     sec_code, 
     batch_size=32,  
-    continous_cols=['Close']
+    continous_cols=['Close'],
+    return_scaler=False
     ):
     df = train_df[train_df['SecuritiesCode'] == sec_code].drop(['SecuritiesCode'], axis=1)
     df = date_features(df)
@@ -58,8 +59,20 @@ def dataloader_by_stock(
     xtrain = scaler.fit_transform(xtrain)
     xval = scaler.transform(xval)
 
-    train_loader = get_loader(x=xtrain, y=ytrain, batch_size=batch_size, x_cat=df_train_cat.to_numpy())
-    val_dataloader = get_loader(x=xval, y=yval, batch_size=batch_size, x_cat=df_val_cat.to_numpy())
+    train_loader = get_loader(
+        x=xtrain, 
+        y=ytrain, 
+        batch_size=batch_size, 
+        x_cat=df_train_cat.to_numpy()
+        )
+    val_dataloader = get_loader(
+        x=xval, 
+        y=yval, 
+        batch_size=batch_size, 
+        x_cat=df_val_cat.to_numpy()
+        )
+    if return_scaler:
+        return train_loader, val_dataloader, scaler
     return train_loader, val_dataloader
 
 
@@ -68,26 +81,31 @@ def dataloader_test_by_stock(
     sec_code, 
     transformer=None, 
     batch_size=32,  
-    continous_cols=['Close']
+    continous_cols=['Close'],
+    target_col='Target'
     ):
     df = train_df[train_df['SecuritiesCode'] == sec_code].drop(['SecuritiesCode'], axis=1)
     df = date_features(df)
 
-    df['Target'] = df['Close'].shift().pct_change()
-    print(df.head())
+    # df['Target'] = df['Close'].shift().pct_change()
+    # print(df.head())
     
     cat_cols = ['day_of_year', 'month', 'day_of_week', 'RowId']
     cont, cat = cont_cat_split(df, cat_cols=cat_cols)
     
     print('continuos shape:', cont.shape, '', 'categorical shape:', cat.shape)
-    xtest, ytest = preprocess(cont, 'Target', 1, continous_cols=continous_cols)
+    xtest = preprocess(cont, target_col, 1, continous_cols=continous_cols)
 
     if transformer is not None:
-        xtest = transformer(xtest)
+        xtest = transformer.transform(xtest)
     else:
         print('Notice that the transformer is None.')
 
-    test_dataloader = get_predict_loader(x=xtest, batch_size=batch_size, x_cat=cat.to_numpy())
+    test_dataloader = get_predict_loader(
+        x=xtest, 
+        batch_size=batch_size, 
+        x_cat=cat.to_numpy()
+        )
     return test_dataloader
 
 
@@ -142,17 +160,24 @@ def preprocess(
     """
     rows = len(df)
     df['Volume'] = df['Volume'].astype(float)
-    y = df[target_col].dropna().to_numpy().reshape(rows, target_dim)
-    x = df.drop(target_col, axis=1)
+    x = df.drop(target_col, axis=1) if target_col is not None else df
     x = x[continous_cols]
-    
     for col in continous_cols:
         x[col] = x[col] * df['AdjustmentFactor']
 
     # if continous_cols:
     #     x[continous_cols] = x[continous_cols].pct_change()
     x = x.select_dtypes(include=[int, float]).dropna().to_numpy()
-    return x, y
+    if target_col is not None:
+        
+        y = df[target_col].dropna()
+        y.plot()
+        y = y.to_numpy().reshape(rows, target_dim)
+
+        return x, y
+    else:
+        # x = df
+        return x
 
 
 def cont_cat_split(df, col_type=None, cat_cols=None):
@@ -213,7 +238,7 @@ def get_loader(x, y, batch_size, x_cat=None):
     return DataLoader(ToTorch(x, y), batch_size=batch_size)
 
 
-class ToTorchPredict(Dataset):
+class TestLoader(Dataset):
 
     def __init__(
             self,
@@ -228,7 +253,7 @@ class ToTorchPredict(Dataset):
 
     def __getitem__(self, idx):
         num_features = self.num_features[idx]
-        target = self.target[idx]
+        # target = self.target[idx]
         cat_features = self.cat_features[idx]
 
         if self.cat_features is not None:
@@ -243,8 +268,8 @@ class ToTorchPredict(Dataset):
 
 def get_predict_loader(x, batch_size, x_cat=None):
     if x_cat is not None:
-        return DataLoader(ToTorchPredict(x, x_cat), batch_size=batch_size)
-    return DataLoader(ToTorchPredict(x), batch_size=batch_size)
+        return DataLoader(TestLoader(x, x_cat), batch_size=batch_size)
+    return DataLoader(TestLoader(x), batch_size=batch_size)
 
 
 if __name__ == '__main__':
