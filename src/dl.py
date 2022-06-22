@@ -106,41 +106,55 @@ class GatedResidualNetwork(nn.Module):
         return x
 
 
+class FFResNetBlock(nn.Module):
+    """
+    TODO:
+    Replace, ModuleList with regular list and sequential class!
+    """
+    def __init__(self, in_features, out_features, n_layers=3):
+        super(FFResNetBlock, self).__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        self.n_layers = n_layers
+        self.layers = nn.ModuleList(nn.Linear(self.in_features, self.out_features) for _ in range(self.n_layers))
+        self.layernorm = nn.LayerNorm(self.out_features)
+
+    def forward(self, x):
+        res = x
+        for layer in self.layers:
+            x = F.relu(layer(self.layernorm(x)))
+        return x + res
+
+
 class NeuralBlock(nn.Module):
 
-    def __init__(self, units, categorical_dim, dropout=0.1):
+    def __init__(self, units, categorical_dim, res_layers=3, res_blocks=2):
         super(NeuralBlock, self).__init__()
 
         self.in_features = units + categorical_dim
         self.out_features = units + categorical_dim
-        self.dropout = nn.Dropout(dropout)
-        self.layer1 = nn.Linear(self.in_features, self.out_features)
-        self.layer2 = nn.Linear(self.in_features, self.out_features)
-        self.layer3 = nn.Linear(self.in_features, self.out_features)
-        self.layer4 = nn.Linear(self.in_features, self.out_features)
+        self.res_layers = res_layers
+        self.res_blocks = res_blocks
+        self.resnet_block = nn.ModuleList(FFResNetBlock(self.in_features, self.out_features, self.res_layers) for _ in range(self.res_blocks))
         self.fwr_layer = nn.Linear(self.in_features, self.in_features)
         self.output = nn.Linear(self.in_features, self.out_features)
-        self.res_layer = nn.Linear(self.in_features, self.in_features)
-        self.res_output = nn.Linear(self.in_features, self.out_features)
+        self.back_cast_layer = nn.Linear(self.in_features, self.in_features)
+        self.back_cast = nn.Linear(self.in_features, self.out_features)
 
     def forward(self, x):
         res = x
         x = torch.real(torch.fft.fft2(x))
-        x = F.relu(self.layer1(x))
-        x = self.dropout(x)
-        x = F.relu(self.layer2(x))
-        x = self.dropout(x)
-        x = x + res
-        x = F.relu(self.layer3(x))
-        x = self.dropout(x)
-        x = F.relu(self.layer4(x))
-        x = F.relu(self.fwr_layer(x))
-        x = torch.real(torch.fft.ifft2(x))
-        x = self.output(x)
+        for r_block in self.resnet_block:
+            x = r_block(x)
         x_res = res - x
+
+        x = torch.real(torch.fft.ifft2(x))
+        x = F.relu(self.fwr_layer(x))
+        x = self.output(x)
+
         x_res = torch.real(torch.fft.ifft2(x_res))
-        x_res = F.relu(self.res_layer(x_res))
-        x_res = self.res_output(x_res)
+        x_res = F.relu(self.back_cast_layer(x_res))
+        x_res = self.back_cast(x_res)
         return x_res, x
 
 
@@ -150,17 +164,21 @@ class NeuralStack(nn.Module):
         n_blocks, 
         units, 
         categorical_dim, 
-        output_dim=1
+        output_dim=1,
+        res_layers=3,
+        res_blocks=2
         ):
         super(NeuralStack, self).__init__()
         self.n_blocks = n_blocks
         self.units = units
         self.categorical_dim = categorical_dim
         self.output_dim = output_dim
+        self.res_layers = res_layers
+        self.res_blocks = res_blocks
 
         self.blocks = nn.ModuleList(
             [
-                NeuralBlock(self.units, self.categorical_dim) for _ in range(self.n_blocks)
+                NeuralBlock(self.units, self.categorical_dim, self.res_layers, self.res_blocks) for _ in range(self.n_blocks)
             ])
         self.output_layers = nn.ModuleList(
             [
@@ -177,6 +195,10 @@ class NeuralStack(nn.Module):
 
 
 class NeuralNetwork(nn.Module):
+    """
+    TODO:
+    1) IMPLEMENT PREPROCESSING AS A LAYER IN THE NETWORK.
+    """
     
     def __init__(
         self, 
@@ -189,7 +211,9 @@ class NeuralNetwork(nn.Module):
         dropout=0.1,
         n_blocks=10,
         n_stacks=8,
-        pooling_sizes=3
+        pooling_sizes=3,
+        res_layers=3,
+        res_blocks=2
         ):
 
         """
@@ -209,14 +233,16 @@ class NeuralNetwork(nn.Module):
         self.n_blocks = n_blocks
         self.n_stacks = n_stacks
         self.pooling_sizes = pooling_sizes
+        self.res_layers = res_layers
+        self.res_blocks = res_blocks
 
         if no_embedding and emb_dim:
             self.embedding_layer = nn.Embedding(self.no_embedding, self.emb_dim)
             self.embedding_to_hidden = nn.Linear(self.emb_dim, self.units)
             self.embedding_output = nn.Linear(self.units, self.out_features)  
-              
-        self.cont_input = nn.Linear(self.in_features - 2, self.units)
-        
+            
+        # if adding cont vars subtract from in-features
+        self.cont_input = nn.Linear(self.in_features, self.units)
         self.dropout = nn.Dropout(dropout)
         self.pooling_layer = nn.MaxPool1d(kernel_size=self.pooling_sizes, stride=self.pooling_sizes, ceil_mode=True)
         # self.pooling_cat = nn.MaxPool1d(kernel_size=self.pooling_sizes, stride=self.pooling_sizes, ceil_mode=True)
@@ -226,7 +252,9 @@ class NeuralNetwork(nn.Module):
                     self.n_blocks, 
                     self.units, 
                     self.categorical_dim, 
-                    self.out_features) for _ in range(self.n_stacks)
+                    self.out_features, 
+                    self.res_layers, 
+                    self.res_blocks) for _ in range(self.n_stacks)
                     ])
 
     def forward(self, x, x_cat=None):
@@ -244,10 +272,16 @@ class NeuralNetwork(nn.Module):
             x_cat = F.relu(self.embedding_output(x_cat))
             x_cat = self.dropout(x_cat)
         # cont_residual = x
+        # print('x.shape from start:', x.shape)
         x = torch.real(torch.fft.fft2(x))
+        # print('x.shape after fft2:', x.shape)
         x = self.pooling_layer(x)
+        # print('x.shape after pooling:', x.shape)
         x = F.relu(self.cont_input(x))
+        # print('x.shape after first cont layer:', x.shape)
+        # We are adding cat vars
         x = torch.cat((x, x_cat.view((x_cat.shape[0], -1))), dim=1)
+        # print('x.shape after torch.cat:', x.shape)
 
         tot_preds = 0
         for n_stack in self.stacks:
@@ -341,22 +375,7 @@ class Trainer:
             train_mae.append(result["train_mae"])
             valid_mae.append(result["val_mae"])
 
-        fig, ax = plt.subplots()
-        training_loss, = ax.plot(range(epochs), train_loss, label='Train-loss')
-        val_loss, = ax.plot(range(epochs), valid_loss, label='Valid-loss')
-        plt.xlabel('Epochs')
-        ax.legend(handles=[training_loss, val_loss])
-        plt.show()
-
-        fig, ax = plt.subplots()
-        training_mae, = ax.plot(range(epochs), train_mae, label='Train-MAE')
-        val_mae, = ax.plot(range(epochs), valid_mae, label='Valid-MAE')
-        plt.xlabel('Epochs')
-        ax.legend(handles=[training_mae, val_mae])
-        plt.show()
-
-    def plot_loss(self, train_loss, val_loss):
-        pass
+        return train_loss, train_mae, valid_loss, valid_mae
 
     def fit_one_epoch(
         self, 
@@ -384,7 +403,7 @@ class Trainer:
 
         return result
 
-    def run_train_step(self, train_loader, loss_every=1000, x_cat=True):
+    def run_train_step(self, train_loader, loss_every=100, x_cat=True):
         running_loss = 0.0
         last_loss = 0.0
         for batch, data in enumerate(train_loader):
@@ -432,6 +451,15 @@ class Trainer:
     def load_model(self, path='./notebooks/trained_model.pt'):
         model = torch.load(path)
         return model.eval()
+
+
+def plot_loss(line1, line2, title1='Train-MAE', title2='Valid-MAE'):
+    fig, ax = plt.subplots()
+    training_mae, = ax.plot(range(len(line1)), line1, label=title1)
+    val_mae, = ax.plot(range(len(line2)), line2, label=title2)
+    plt.xlabel('Epochs')
+    ax.legend(handles=[training_mae, val_mae])
+    plt.show()
 
 
 if __name__  == '__main__':

@@ -8,14 +8,65 @@ from sklearn.preprocessing import OrdinalEncoder
 from sklearn.preprocessing import StandardScaler
 
 
+def set_date_index(df, col='Date'):
+    df[col] = pd.to_datetime(df[col])
+    df.set_index(col, inplace=True)
+    return df
+
+
 def get_data(folder='train_files'):
+    """
+    HOW TO HANDLE PREPROCESSING TEXT FOR 
+    PREDICTION PIPELINE????
+
+    Hard-coded rules for data.
+
+    How it will be handle:
+    Text transformer can be applied without saving the 
+    state of the object, one reason, is that
+    the categorical variables are static.
+
+    Run the get data even for test data.
+    """
     computer_name1 = 'gilbe'
     computer_name2 = 'Gilberto-BE'
 
     ROOT_PATH = f'c:/Users/{computer_name1}/Documents/TokyoData'
     train_df = pd.read_csv(f'{ROOT_PATH}/{folder}/stock_prices.csv')
-    train_df['Date'] = pd.to_datetime(train_df['Date']) 
-    train_df.set_index('Date', inplace=True)
+    stock_list = pd.read_csv(f'{ROOT_PATH}/stock_list.csv').drop('Close', axis=1)
+
+    TEXT_COLS = ['Section/Products', '33SectorName', '17SectorName', 'Universe0']
+    stock_list = stock_list[TEXT_COLS + ['MarketCapitalization', 'SecuritiesCode']]
+    train_df = stock_list.merge(train_df, on=['SecuritiesCode'])
+
+    for txt_col in TEXT_COLS:
+        train_df[txt_col] = TextTransform(list(train_df[txt_col])).transform()
+
+    # # Add financials
+    # df_financials = pd.read_csv(f'{ROOT_PATH}/train_files/financials.csv', low_memory=False)
+    # df_financials.replace('－', np.nan, inplace=True)
+    # df_financials.replace('NaN', np.nan, inplace=True)
+
+    # FIN_COLS_CONT = [
+    #     'NetSales', 'EquityToAssetRatio', 'TotalAssets', 'Profit', 
+    #     'OperatingProfit', 'EarningsPerShare', 'Equity', 
+    #     'BookValuePerShare', 'ResultDividendPerShare1stQuarter', 
+    #     'ResultDividendPerShare2ndQuarter', 'ResultDividendPerShare3rdQuarter',
+    #     'ResultDividendPerShareFiscalYearEnd', 'ResultDividendPerShareAnnual'
+    #     ]
+    # df_financials[FIN_COLS_CONT] = df_financials[FIN_COLS_CONT].astype(float)
+    # df_financials = df_financials[FIN_COLS_CONT + ['SecuritiesCode', 'Date']]
+    # train_df = train_df.merge(df_financials,  on=['SecuritiesCode', 'Date'], how='left')
+    
+    train_df = set_date_index(train_df)
+    print('train_df.head(10):')
+    print(train_df.head(10))
+
+
+    # train_df['Date'] = pd.to_datetime(train_df['Date']) 
+    # train_df.set_index('Date', inplace=True)
+
+
     return train_df
 
 
@@ -23,8 +74,8 @@ class TextTransform:
     def __init__(self, tokens):
         self.token_np = np.array(list(tokens)) #if isinstance(tokens, (pd.DataFrame, pd.Series)) else tokens
         self.vocab = np.unique(self.token_np)
-        self.w2idx = {w: i for i, w in enumerate(self.vocab)}
-        self.idx2w = {i: w for i, w in enumerate(self.vocab)}
+        self.w2idx = {w: int(i) for i, w in enumerate(self.vocab)}
+        self.idx2w = {int(i): w for i, w in enumerate(self.vocab)}
 
     def transform(self):
         self.idx = [self.w2idx[i] for i in self.token_np]
@@ -39,25 +90,39 @@ def dataloader_by_stock(
     sec_code, 
     batch_size=32,  
     continous_cols=['Close'],
-    return_scaler=False
+    return_scaler=False,
+    transform=StandardScaler
     ):
     df = train_df[train_df['SecuritiesCode'] == sec_code].drop(['SecuritiesCode'], axis=1)
     df = date_features(df)
     
-    cat_cols = ['day_of_year', 'month', 'day_of_week', 'RowId']
+    """
+
+    TODO:
+    1. CREATE A BRANCH FOR THE TESTING PHASE!!!!
+
+    CHANGES HERE HAVE TO BE IMPLEMENTED IN dataloader_test_by_stock()
+    Hard coded cat-columns
+    
+    
+    """
+    cat_cols = ['day_of_year', 'month', 'day_of_week', 'RowId', 'Section/Products', '33SectorName', '17SectorName']
     cont, cat = cont_cat_split(df, cat_cols=cat_cols)
+    # print('continouscols:', cont.columns)
     
     print('continuos shape:', cont.shape, '', 'categorical shape:', cat.shape)
     
     df_train_cat, df_val_cat = ts_split(cat)
+    # print('cat_columns:', df_train_cat.columns)
     df_train, df_val = ts_split(cont)
 
     xtrain, ytrain = preprocess(df_train, 'Target', 1, continous_cols=continous_cols)
     xval, yval = preprocess(df_val, 'Target', 1, continous_cols=continous_cols)
 
-    scaler = StandardScaler()
-    xtrain = scaler.fit_transform(xtrain)
-    xval = scaler.transform(xval)
+    if transform is not None:
+        scaler = transform()
+        xtrain = scaler.fit_transform(xtrain)
+        xval = scaler.transform(xval)
 
     train_loader = get_loader(
         x=xtrain, 
@@ -87,13 +152,17 @@ def dataloader_test_by_stock(
     df = train_df[train_df['SecuritiesCode'] == sec_code].drop(['SecuritiesCode'], axis=1)
     df = date_features(df)
 
+    """Hard coded cat-columns"""
+    cat_cols = ['day_of_year', 'month', 'day_of_week', 'RowId', 'Section/Products', '33SectorName', '17SectorName']
+
+
     # df['Target'] = df['Close'].shift().pct_change()
     # print(df.head())
     
-    cat_cols = ['day_of_year', 'month', 'day_of_week', 'RowId']
+    # cat_cols = ['day_of_year', 'month', 'day_of_week', 'RowId']
     cont, cat = cont_cat_split(df, cat_cols=cat_cols)
     
-    print('continuos shape:', cont.shape, '', 'categorical shape:', cat.shape)
+    # print('continuos shape:', cont.shape, '', 'categorical shape:', cat.shape)
     xtest = preprocess(cont, target_col, 1, continous_cols=continous_cols)
 
     if transformer is not None:
@@ -109,12 +178,12 @@ def dataloader_test_by_stock(
     return test_dataloader
 
 
-def ts_split(raw_data, train_size=0.75, val_size=None):
-
-    train_sz = int(len(raw_data) * train_size)
+def ts_split(raw_data, train_size=0.85, val_size=None):
+    """
+    Hard code and train date.
+    """
+    train_sz = '2021-11-30' #int(len(raw_data) * train_size)
     train_set = raw_data[ :train_sz]
-    # if val_size and test_size:
-    #     assert len(raw_data) == 100 * int(train_size * len(raw_data))
     valid_set = raw_data[train_sz: ]
     return train_set, valid_set    
 
@@ -171,7 +240,7 @@ def preprocess(
     if target_col is not None:
         
         y = df[target_col].dropna()
-        y.plot()
+        # y.plot()
         y = y.to_numpy().reshape(rows, target_dim)
 
         return x, y

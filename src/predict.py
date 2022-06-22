@@ -15,20 +15,25 @@ class Predict:
 
 def run_pred_step(test_loader, model, x_cat=True, target=False):
     running_loss = 0.0
-    model.eval()
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = "cpu"
+    model.to(device).eval()
+
     # with torch.no_grad:
+    pred_list = []
     for batch, data in enumerate(test_loader):
         x = data['num_features'].to(device)
         if target:
             y = data['target'].to(device)
         if x_cat is not None:
             x_cat = data['cat_features'].to(device)
-            pred = model(x, x_cat).to(device)
+            pred = model(x, x_cat).to(device).detach().numpy()
         else:
-            pred = model(x)
+            pred = model(x).to(device).detach().numpy()
         print('Test predictions:')
-        print(pred)
+        print(pred.squeeze(), pred.squeeze().shape)
+        pred_list.append(pred.squeeze())
+
+    return pred_list
             
     #         loss = self.loss_fn(pred, y)
     #         running_loss += loss
