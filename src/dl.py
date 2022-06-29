@@ -1,4 +1,3 @@
-
 import torch
 import torch.nn as nn
 torch.manual_seed(0)
@@ -12,7 +11,7 @@ import torchmetrics as TM
 # pl.utilities.seed.seed_everything(seed=42)
 from torch import nn, Tensor
 import math
-from metrics import metrics
+from metrics.metrics import compute_metrics
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -117,12 +116,12 @@ class FFResNetBlock(nn.Module):
         self.out_features = out_features
         self.n_layers = n_layers
         self.layers = nn.ModuleList(nn.Linear(self.in_features, self.out_features) for _ in range(self.n_layers))
-        self.layernorm = nn.LayerNorm(self.out_features)
+        self.layer_norm = nn.LayerNorm(self.out_features)
 
     def forward(self, x):
         res = x
-        for layer in self.layers:
-            x = F.relu(layer(self.layernorm(x)))
+        for L in self.layers:
+            x = F.relu(self.layer_norm(L(x)))
         return x + res
 
 
@@ -135,10 +134,12 @@ class NeuralBlock(nn.Module):
         self.out_features = units + categorical_dim
         self.res_layers = res_layers
         self.res_blocks = res_blocks
-        self.resnet_block = nn.ModuleList(FFResNetBlock(self.in_features, self.out_features, self.res_layers) for _ in range(self.res_blocks))
+        self.resnet_block = nn.ModuleList(
+            FFResNetBlock(self.in_features, self.out_features, self.res_layers) for _ in range(self.res_blocks)
+            )
         self.fwr_layer = nn.Linear(self.in_features, self.in_features)
         self.output = nn.Linear(self.in_features, self.out_features)
-        self.back_cast_layer = nn.Linear(self.in_features, self.in_features)
+        self.backcast_layer = nn.Linear(self.in_features, self.in_features)
         self.back_cast = nn.Linear(self.in_features, self.out_features)
 
     def forward(self, x):
@@ -153,7 +154,7 @@ class NeuralBlock(nn.Module):
         x = self.output(x)
 
         x_res = torch.real(torch.fft.ifft2(x_res))
-        x_res = F.relu(self.back_cast_layer(x_res))
+        x_res = F.relu(self.backcast_layer(x_res))
         x_res = self.back_cast(x_res)
         return x_res, x
 
@@ -187,9 +188,9 @@ class NeuralStack(nn.Module):
 
     def forward(self, x):
         predictions = 0
+        x_back = x
         for block_nr, block in enumerate(self.blocks):
-            x_back, pred = block(x)
-            x = x_back
+            x_back, pred = block(x_back)
             predictions += self.output_layers[block_nr](pred)        
         return x_back, predictions
 
@@ -245,7 +246,6 @@ class NeuralNetwork(nn.Module):
         self.cont_input = nn.Linear(self.in_features, self.units)
         self.dropout = nn.Dropout(dropout)
         self.pooling_layer = nn.MaxPool1d(kernel_size=self.pooling_sizes, stride=self.pooling_sizes, ceil_mode=True)
-        # self.pooling_cat = nn.MaxPool1d(kernel_size=self.pooling_sizes, stride=self.pooling_sizes, ceil_mode=True)
 
         self.stacks = nn.ModuleList([
             NeuralStack(
@@ -262,17 +262,23 @@ class NeuralNetwork(nn.Module):
         TODO:
         * Add residual connictions.
         """
-        if x_cat is not None:
-            x_cat = x_cat.to(torch.int64)
-            emb_residual = x_cat
-            x_cat = self.embedding_layer(x_cat)
-            x_cat = torch.squeeze(torch.real(torch.fft.fft2(x_cat)))
-            x_cat = F.relu(self.embedding_to_hidden(x_cat))
-            x_cat = self.dropout(x_cat)
-            x_cat = F.relu(self.embedding_output(x_cat))
-            x_cat = self.dropout(x_cat)
-        # cont_residual = x
-        # print('x.shape from start:', x.shape)
+        # if x_cat is not None:
+        x_cat = x_cat.to(torch.int64)
+        # print('x_cat.shape before embedding:', x_cat.shape)
+        
+        x_cat = self.embedding_layer(x_cat)
+        # print('x_cat after embedding:', x_cat.shape)
+        
+        # x_cat = torch.squeeze(torch.real(torch.fft.fft2(x_cat)))
+        # print('TEST UNSQUEEZE ON x_cat: ', torch.unsqueeze(x_cat, 0).shape)
+        # print('x_cat after fft2:', x_cat.shape)
+        
+        x_cat = F.relu(self.embedding_to_hidden(x_cat))
+        # print('x_cat after relu + linear:', x_cat.shape)
+        
+        x_cat = F.relu(self.embedding_output(x_cat))
+        # print('Shape of x_cat before cat:', x_cat.shape)
+
         x = torch.real(torch.fft.fft2(x))
         # print('x.shape after fft2:', x.shape)
         x = self.pooling_layer(x)
@@ -280,12 +286,15 @@ class NeuralNetwork(nn.Module):
         x = F.relu(self.cont_input(x))
         # print('x.shape after first cont layer:', x.shape)
         # We are adding cat vars
-        x = torch.cat((x, x_cat.view((x_cat.shape[0], -1))), dim=1)
+
+        x = torch.cat((x, x_cat.view((x_cat.size(0), -1))), dim=1)
         # print('x.shape after torch.cat:', x.shape)
+        x = self.dropout(x)
 
         tot_preds = 0
-        for n_stack in self.stacks:
-            x, pred = n_stack(x)
+        block_input = x
+        for S in self.stacks:
+            block_input, pred = S(block_input)
             tot_preds += pred
         return tot_preds
 
@@ -293,11 +302,13 @@ class NeuralNetwork(nn.Module):
 class Trainer:
     def __init__(
         self, 
-        model:nn.Module, 
+        model: nn.Module, 
         optimizer_name:str='adam', 
-        lr:float=3e-6, 
-        loss_fn_name:str='mse',
-        weight_decay:float=0.0
+        lr: float = 3e-6, 
+        loss_fn_name: str = 'mse',
+        weight_decay: float = 0.0,
+        scale_ts: bool = False
+
         ):
 
         """
@@ -311,6 +322,7 @@ class Trainer:
         print(f"Using {self.device}-device")
         self.model = model.to(self.device)
         self.weight_decay = weight_decay
+        self.scale_ts = scale_ts
 
         if self.loss_fn_name == 'mse':
             self.loss_fn = nn.MSELoss()
@@ -354,7 +366,7 @@ class Trainer:
             result = self.fit_one_epoch(train_loader, valid_loader, use_cyclic_lr, x_cat=x_cat)
             scheduler.step(result['avg_loss_val'])
             if epoch % 10  == 0:
-                print(f'Epoch: <<< {epoch} >>>')
+                # print(f'Epoch: <<< {epoch} >>>')
                 print(
                     f"""
                     Average train loss: {result["avg_loss_train"]} | 
@@ -364,7 +376,7 @@ class Trainer:
                     Val-Mae: {result["val_mae"]}
                     """
                     )
-                print('.' * 20, f'End of epoch {epoch}','.' * 20)
+                # print('.' * 20, f'End of epoch {epoch}','.' * 20)
             if result['avg_loss_val'] < best_valid_loss:
                 """
                 SAVE THE BEST MODEL BASED ON BEST VALID LOSS
@@ -400,7 +412,6 @@ class Trainer:
             'train_mae': train_metrics['mae'],
             'val_mae': val_metrics['mae']
             }
-
         return result
 
     def run_train_step(self, train_loader, loss_every=100, x_cat=True):
@@ -411,11 +422,22 @@ class Trainer:
             y = data['target'].to(self.device)
             self.optimizer.zero_grad()
 
+            """
+            TODO: CHECK SCALING ISSUES
+            USE MAX-SCALING???
+            """
+            # if self.scale_ts:
+            #     scaling_factor = torch.abs(x.max(1)[0].unsqueeze(1))
+            #     x = x/scaling_factor
+
             if x_cat is not None:
                 x_cat = data['cat_features'].to(self.device)
                 pred = self.model(x, x_cat).to(self.device)
             else:
                 pred = self.model(x).to(self.device)
+            
+            # if self.scale_ts:
+            #     pred = pred * scaling_factor
             loss = self.loss_fn(pred, y)
             loss.backward()
             self.optimizer.step()
@@ -424,7 +446,7 @@ class Trainer:
                 last_loss = running_loss/loss_every
                 running_loss = 0.0
 
-        train_metrics = metrics(pred, y)
+        train_metrics = compute_metrics(pred, y)
         return pred, last_loss, train_metrics
 
     def run_val_step(self, valid_loader, x_cat=True):
@@ -442,7 +464,7 @@ class Trainer:
             loss = self.loss_fn(pred, y)
             running_loss += loss
         avg_loss = running_loss/(batch + 1)
-        val_metrics = metrics(pred, y)
+        val_metrics = compute_metrics(pred, y)
         return pred, avg_loss, val_metrics
 
     def save_model(self, model, path='./trained_model.pt'):

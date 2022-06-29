@@ -1,4 +1,3 @@
-
 import numpy as np
 import pandas as pd
 from torchmetrics import (
@@ -55,7 +54,7 @@ def calc_spread_return_sharpe(
     return sharpe_ratio
 
 
-def metrics(ytrue, ypred):
+def compute_metrics(ytrue, ypred):
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     mse = MeanSquaredError().to(device)

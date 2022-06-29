@@ -136,34 +136,29 @@ def dataloader_by_stock(
         batch_size=batch_size, 
         x_cat=df_val_cat.to_numpy()
         )
-    if return_scaler:
-        return train_loader, val_dataloader, scaler
+    # if return_scaler:
+    #     return train_loader, val_dataloader, scaler
     return train_loader, val_dataloader
 
 
 def dataloader_test_by_stock(
-    train_df, 
+    df, 
     sec_code, 
     transformer=None, 
     batch_size=32,  
     continous_cols=['Close'],
-    target_col='Target'
+    target_col='Target',
+    return_idx=True
     ):
-    df = train_df[train_df['SecuritiesCode'] == sec_code].drop(['SecuritiesCode'], axis=1)
+    df = df[df['SecuritiesCode'] == sec_code].drop(['SecuritiesCode'], axis=1)
     df = date_features(df)
 
     """Hard coded cat-columns"""
     cat_cols = ['day_of_year', 'month', 'day_of_week', 'RowId', 'Section/Products', '33SectorName', '17SectorName']
-
-
-    # df['Target'] = df['Close'].shift().pct_change()
-    # print(df.head())
-    
-    # cat_cols = ['day_of_year', 'month', 'day_of_week', 'RowId']
     cont, cat = cont_cat_split(df, cat_cols=cat_cols)
     
-    # print('continuos shape:', cont.shape, '', 'categorical shape:', cat.shape)
-    xtest = preprocess(cont, target_col, 1, continous_cols=continous_cols)
+    print('continuos shape:', cont.shape, '', 'categorical shape:', cat.shape)
+    xtest, idx = preprocess(cont, target_col, 1, continous_cols=continous_cols, return_idx=return_idx)
 
     if transformer is not None:
         xtest = transformer.transform(xtest)
@@ -175,6 +170,8 @@ def dataloader_test_by_stock(
         batch_size=batch_size, 
         x_cat=cat.to_numpy()
         )
+    if return_idx:
+        return test_dataloader, idx
     return test_dataloader
 
 
@@ -221,7 +218,8 @@ def preprocess(
     df, 
     target_col='Target',
     target_dim=1, 
-    continous_cols=['Open', 'Close', 'High', 'Low', 'Volume']
+    continous_cols=['Open', 'Close', 'High', 'Low', 'Volume'],
+    return_idx=False
     ):
     """
     -----------------
@@ -234,18 +232,20 @@ def preprocess(
     for col in continous_cols:
         x[col] = x[col] * df['AdjustmentFactor']
 
-    # if continous_cols:
-    #     x[continous_cols] = x[continous_cols].pct_change()
+    if continous_cols:
+        x[continous_cols] = x[continous_cols].pct_change().dropna()
+    idx = x.index
     x = x.select_dtypes(include=[int, float]).dropna().to_numpy()
+    
     if target_col is not None:
-        
         y = df[target_col].dropna()
-        # y.plot()
         y = y.to_numpy().reshape(rows, target_dim)
-
+        if return_idx:
+            return x, y, idx
         return x, y
     else:
-        # x = df
+        if return_idx:
+            return x, idx
         return x
 
 
